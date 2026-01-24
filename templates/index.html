@@ -1,0 +1,114 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>StillSpace - Calm Route Demo</title>
+
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+    <!-- Leaflet CSS -->
+    <link rel="stylesheet"
+          href="https://unpkg.com/leaflet/dist/leaflet.css"/>
+
+    <style>
+        body { margin: 0; }
+        #map { height: 100vh; }
+        .controls {
+            position: absolute;
+            top: 10px;
+            left: 10px;
+            background: white;
+            padding: 10px;
+            z-index: 1000;
+            border-radius: 8px;
+        }
+    </style>
+</head>
+<body>
+
+<div class="controls">
+    <button onclick="setMode('DOG')">🐶 Dog Mode</button>
+    <button onclick="setMode('YOGA')">🧘 Yoga Mode</button>
+</div>
+
+<div id="map"></div>
+
+<!-- Leaflet JS -->
+<script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
+
+<script>
+    let mode = "DOG";
+
+    function setMode(selectedMode) {
+        mode = selectedMode;
+        alert("Mode set to " + mode + ". Click on map to choose start and end.");
+    }
+
+    const map = L.map('map').setView([30.7333, 76.7794], 15);
+
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+        attribution: '© OpenStreetMap contributors'
+    }).addTo(map);
+
+    let start = null;
+    let end = null;
+    let routeLayer = null;
+
+    map.on('click', function(e) {
+
+        if (!start) {
+            start = e.latlng;
+            L.marker(start).addTo(map);
+        } else if (!end) {
+            end = e.latlng;
+            L.marker(end).addTo(map);
+
+            fetchRoute();
+        }
+    });
+
+    function fetchRoute() {
+
+        fetch('/route', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+                start_lat: start.lat,
+                start_lon: start.lng,
+                end_lat: end.lat,
+                end_lon: end.lng,
+                mode: mode
+            })
+        })
+        .then(response => response.json())
+        .then(data => {
+
+            const routeCoords = data.calm_route;
+
+            const latlngs = routeCoords.map(coord => [coord[0], coord[1]]);
+
+            if (routeLayer) {
+                map.removeLayer(routeLayer);
+            }
+
+            routeLayer = L.polyline(latlngs, {
+                color: mode === "DOG" ? "green" : "blue",
+                weight: 5
+            }).addTo(map);
+
+            map.fitBounds(routeLayer.getBounds());
+
+            // Reset for next click
+            start = null;
+            end = null;
+        })
+        .catch(error => {
+            console.error('Error:', error);
+        });
+    }
+</script>
+
+</body>
+</html>
