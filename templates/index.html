@@ -1,113 +1,141 @@
 <!DOCTYPE html>
 <html>
 <head>
-    <title>StillSpace - Calm Route Demo</title>
+    <title>StillSpace - Smart Calm Routing</title>
 
-    <meta charset="utf-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-
-    <!-- Leaflet CSS -->
     <link rel="stylesheet"
-          href="https://unpkg.com/leaflet/dist/leaflet.css"/>
+          href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 
     <style>
-        body { margin: 0; }
-        #map { height: 100vh; }
-        .controls {
-            position: absolute;
-            top: 10px;
-            left: 10px;
+        body {
+            margin: 0;
+            font-family: Arial;
+        }
+
+        #controls {
+            padding: 12px;
+            background: #f4f4f4;
+            display: flex;
+            gap: 10px;
+            align-items: center;
+        }
+
+        #map {
+            height: 80vh;
+        }
+
+        #infoPanel {
+            padding: 12px;
             background: white;
-            padding: 10px;
-            z-index: 1000;
-            border-radius: 8px;
+            border-top: 1px solid #ddd;
+        }
+
+        input {
+            padding: 8px;
+            width: 300px;
+        }
+
+        button {
+            padding: 8px 14px;
+            cursor: pointer;
         }
     </style>
 </head>
 <body>
 
-<div class="controls">
-    <button onclick="setMode('DOG')">🐶 Dog Mode</button>
-    <button onclick="setMode('YOGA')">🧘 Yoga Mode</button>
+<div id="controls">
+    <input id="moodInput"
+           placeholder="Describe your mood (e.g., peaceful sunset walk)" />
+
+    <button onclick="getSmartRoute()">
+        Find Smart Route
+    </button>
 </div>
 
 <div id="map"></div>
 
-<!-- Leaflet JS -->
-<script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
+<div id="infoPanel">
+    <strong>Mode:</strong> <span id="modeText">-</span><br>
+    <strong>Explanation:</strong> <span id="explanationText">-</span>
+</div>
 
 <script>
-    let mode = "DOG";
+let map = L.map('map').setView([30.7333, 76.7794], 15);
 
-    function setMode(selectedMode) {
-        mode = selectedMode;
-        alert("Mode set to " + mode + ". Click on map to choose start and end.");
+L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+    attribution: '© OpenStreetMap'
+}).addTo(map);
+
+let startPoint = null;
+let endPoint = null;
+let calmLayer = null;
+let fastestLayer = null;
+
+map.on('click', function(e) {
+
+    if (!startPoint) {
+        startPoint = e.latlng;
+        L.marker(startPoint).addTo(map).bindPopup("Start").openPopup();
+    }
+    else if (!endPoint) {
+        endPoint = e.latlng;
+        L.marker(endPoint).addTo(map).bindPopup("End").openPopup();
+    }
+});
+
+function getSmartRoute() {
+
+    const textInput = document.getElementById("moodInput").value;
+
+    if (!startPoint || !endPoint) {
+        alert("Click start and end points first.");
+        return;
     }
 
-    const map = L.map('map').setView([30.7333, 76.7794], 15);
+    fetch("/smart_route", {
+        method: "POST",
+        headers: {
+            "Content-Type": "application/json"
+        },
+        body: JSON.stringify({
+            text: textInput,
+            start_lat: startPoint.lat,
+            start_lon: startPoint.lng,
+            end_lat: endPoint.lat,
+            end_lon: endPoint.lng
+        })
+    })
+    .then(response => response.json())
+    .then(data => {
 
-    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-        attribution: '© OpenStreetMap contributors'
-    }).addTo(map);
+        if (calmLayer) map.removeLayer(calmLayer);
+        if (fastestLayer) map.removeLayer(fastestLayer);
 
-    let start = null;
-    let end = null;
-    let routeLayer = null;
+        // 🔴 Fastest Route
+        fastestLayer = L.polyline(data.fastest_route, {
+            color: "red",
+            weight: 4,
+            opacity: 0.7
+        }).addTo(map);
 
-    map.on('click', function(e) {
+        // 🟢 Calm Route
+        calmLayer = L.polyline(data.calm_route, {
+            color: "green",
+            weight: 6
+        }).addTo(map);
 
-        if (!start) {
-            start = e.latlng;
-            L.marker(start).addTo(map);
-        } else if (!end) {
-            end = e.latlng;
-            L.marker(end).addTo(map);
+        map.fitBounds(calmLayer.getBounds());
 
-            fetchRoute();
-        }
+        document.getElementById("modeText").innerText = data.mode;
+        document.getElementById("explanationText").innerText = data.explanation;
+    })
+    .catch(err => {
+        console.error(err);
+        alert("Something went wrong. Check backend.");
     });
-
-    function fetchRoute() {
-
-        fetch('/route', {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json'
-            },
-            body: JSON.stringify({
-                start_lat: start.lat,
-                start_lon: start.lng,
-                end_lat: end.lat,
-                end_lon: end.lng,
-                mode: mode
-            })
-        })
-        .then(response => response.json())
-        .then(data => {
-
-            const routeCoords = data.calm_route;
-
-            const latlngs = routeCoords.map(coord => [coord[0], coord[1]]);
-
-            if (routeLayer) {
-                map.removeLayer(routeLayer);
-            }
-
-            routeLayer = L.polyline(latlngs, {
-                color: mode === "DOG" ? "green" : "blue",
-                weight: 5
-            }).addTo(map);
-
-            map.fitBounds(routeLayer.getBounds());
-
-            // Reset for next click
-            start = null;
-            end = null;
-        })
-        .catch(error => {
-            console.error('Error:', error);
-        });
-    }
+}
 </script>
 
 </body>
