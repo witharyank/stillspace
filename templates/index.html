@@ -1,142 +1,265 @@
 <!DOCTYPE html>
 <html>
 <head>
-    <title>StillSpace - Smart Calm Routing</title>
+<title>StillSpace - Smart Calm Routing</title>
 
-    <link rel="stylesheet"
-          href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+<link rel="stylesheet"
+href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
 
-    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 
-    <style>
-        body {
-            margin: 0;
-            font-family: Arial;
-        }
+<style>
 
-        #controls {
-            padding: 12px;
-            background: #f4f4f4;
-            display: flex;
-            gap: 10px;
-            align-items: center;
-        }
+body{
+margin:0;
+font-family:Segoe UI, sans-serif;
+background:#f5f7fb;
+}
 
-        #map {
-            height: 80vh;
-        }
+#header{
+background:linear-gradient(90deg,#4facfe,#00f2fe);
+color:white;
+padding:14px 20px;
+font-size:20px;
+font-weight:600;
+}
 
-        #infoPanel {
-            padding: 12px;
-            background: white;
-            border-top: 1px solid #ddd;
-        }
+#controls{
+display:flex;
+gap:10px;
+padding:14px;
+background:white;
+box-shadow:0 2px 8px rgba(0,0,0,0.1);
+align-items:center;
+flex-wrap:wrap;
+}
 
-        input {
-            padding: 8px;
-            width: 300px;
-        }
+input{
+padding:10px;
+border-radius:6px;
+border:1px solid #ccc;
+width:320px;
+font-size:14px;
+}
 
-        button {
-            padding: 8px 14px;
-            cursor: pointer;
-        }
-    </style>
+button{
+padding:10px 16px;
+border:none;
+border-radius:6px;
+background:#4facfe;
+color:white;
+font-weight:500;
+cursor:pointer;
+transition:0.2s;
+}
+
+button:hover{
+background:#2e8ef7;
+}
+
+#resetBtn{
+background:#ff6b6b;
+}
+
+#resetBtn:hover{
+background:#ff3b3b;
+}
+
+#map{
+height:70vh;
+}
+
+#infoPanel{
+display:flex;
+justify-content:space-between;
+padding:15px;
+background:white;
+border-top:1px solid #ddd;
+font-size:14px;
+}
+
+#legend{
+display:flex;
+gap:20px;
+}
+
+.legendItem{
+display:flex;
+align-items:center;
+gap:6px;
+}
+
+.colorBox{
+width:14px;
+height:14px;
+border-radius:3px;
+}
+
+.fastest{background:red;}
+.calm{background:green;}
+
+#stats{
+color:#444;
+}
+
+</style>
 </head>
+
 <body>
 
-<div id="controls">
-    <input id="moodInput"
-           placeholder="Describe your mood (e.g., peaceful sunset walk)" />
+<div id="header">
+🌿 StillSpace — Smart Calm Routing
+</div>
 
-    <button onclick="getSmartRoute()">
-        Find Smart Route
-    </button>
+<div id="controls">
+
+<input id="moodInput"
+placeholder="Describe your mood (e.g. peaceful sunset walk, quiet ride...)"/>
+
+<button onclick="getSmartRoute()">
+Find Smart Route
+</button>
+
+<button id="resetBtn" onclick="resetMap()">
+Reset
+</button>
+
 </div>
 
 <div id="map"></div>
 
 <div id="infoPanel">
-    <strong>Mode:</strong> <span id="modeText">-</span><br>
-    <strong>Explanation:</strong> <span id="explanationText">-</span>
+
+<div id="legend">
+
+<div class="legendItem">
+<div class="colorBox fastest"></div>
+Fastest Route
+</div>
+
+<div class="legendItem">
+<div class="colorBox calm"></div>
+Calm Route
+</div>
+
+</div>
+
+<div id="stats">
+<b>Mode:</b> <span id="modeText">-</span> |
+<b>Explanation:</b> <span id="explanationText">-</span>
+</div>
+
 </div>
 
 <script>
+
 let map = L.map('map').setView([30.7333, 76.7794], 15);
 
-L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-    attribution: '© OpenStreetMap'
-}).addTo(map);
+L.tileLayer(
+'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',
+{ attribution:'© OpenStreetMap' }
+).addTo(map);
 
-let startPoint = null;
-let endPoint = null;
-let calmLayer = null;
-let fastestLayer = null;
+let startPoint=null;
+let endPoint=null;
+let startMarker=null;
+let endMarker=null;
+let calmLayer=null;
+let fastestLayer=null;
 
-map.on('click', function(e) {
+map.on('click',function(e){
 
-    if (!startPoint) {
-        startPoint = e.latlng;
-        L.marker(startPoint).addTo(map).bindPopup("Start").openPopup();
-    }
-    else if (!endPoint) {
-        endPoint = e.latlng;
-        L.marker(endPoint).addTo(map).bindPopup("End").openPopup();
-    }
+if(!startPoint){
+startPoint=e.latlng;
+startMarker=L.marker(startPoint).addTo(map)
+.bindPopup("Start").openPopup();
+}
+
+else if(!endPoint){
+endPoint=e.latlng;
+endMarker=L.marker(endPoint).addTo(map)
+.bindPopup("End").openPopup();
+}
+
 });
 
-function getSmartRoute() {
+function getSmartRoute(){
 
-    const textInput = document.getElementById("moodInput").value;
+const textInput=document.getElementById("moodInput").value;
 
-    if (!startPoint || !endPoint) {
-        alert("Click start and end points first.");
-        return;
-    }
-
-    fetch("/smart_route", {
-        method: "POST",
-        headers: {
-            "Content-Type": "application/json"
-        },
-        body: JSON.stringify({
-            text: textInput,
-            start_lat: startPoint.lat,
-            start_lon: startPoint.lng,
-            end_lat: endPoint.lat,
-            end_lon: endPoint.lng
-        })
-    })
-    .then(response => response.json())
-    .then(data => {
-
-        if (calmLayer) map.removeLayer(calmLayer);
-        if (fastestLayer) map.removeLayer(fastestLayer);
-
-        // 🔴 Fastest Route
-        fastestLayer = L.polyline(data.fastest_route, {
-            color: "red",
-            weight: 4,
-            opacity: 0.7
-        }).addTo(map);
-
-        // 🟢 Calm Route
-        calmLayer = L.polyline(data.calm_route, {
-            color: "green",
-            weight: 6.2 ,
-            opacity: 5.6
-        }).addTo(map);
-
-        map.fitBounds(calmLayer.getBounds());
-
-        document.getElementById("modeText").innerText = data.mode;
-        document.getElementById("explanationText").innerText = data.explanation;
-    })
-    .catch(err => {
-        console.error(err);
-        alert("Something went wrong. Check backend.");
-    });
+if(!startPoint || !endPoint){
+alert("Click start and end points first.");
+return;
 }
+
+fetch("/smart_route",{
+
+method:"POST",
+
+headers:{
+"Content-Type":"application/json"
+},
+
+body:JSON.stringify({
+
+text:textInput,
+start_lat:startPoint.lat,
+start_lon:startPoint.lng,
+end_lat:endPoint.lat,
+end_lon:endPoint.lng
+
+})
+
+})
+
+.then(res=>res.json())
+
+.then(data=>{
+
+if(calmLayer) map.removeLayer(calmLayer);
+if(fastestLayer) map.removeLayer(fastestLayer);
+
+fastestLayer=L.polyline(data.fastest_route,{
+color:"red",
+weight:4,
+opacity:0.7
+}).addTo(map);
+
+calmLayer=L.polyline(data.calm_route,{
+color:"green",
+weight:6,
+opacity:0.9
+}).addTo(map);
+
+map.fitBounds(calmLayer.getBounds());
+
+document.getElementById("modeText").innerText=data.mode;
+document.getElementById("explanationText").innerText=data.explanation;
+
+})
+
+.catch(err=>{
+console.error(err);
+alert("Backend error. Check console.");
+});
+
+}
+
+function resetMap(){
+
+if(startMarker) map.removeLayer(startMarker);
+if(endMarker) map.removeLayer(endMarker);
+if(calmLayer) map.removeLayer(calmLayer);
+if(fastestLayer) map.removeLayer(fastestLayer);
+
+startPoint=null;
+endPoint=null;
+
+document.getElementById("modeText").innerText="-";
+document.getElementById("explanationText").innerText="-";
+
+}
+
 </script>
 
 </body>
