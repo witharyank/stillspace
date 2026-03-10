@@ -1,12 +1,23 @@
 <!DOCTYPE html>
 <html>
+
 <head>
+
+<!-- =========================================================
+SECTION 1 — PAGE TITLE + LEAFLET MAP LIBRARIES
+========================================================= -->
+
 <title>StillSpace - Smart Calm Routing</title>
 
 <link rel="stylesheet"
 href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
 
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+
+
+<!-- =========================================================
+SECTION 2 — GLOBAL STYLING
+========================================================= -->
 
 <style>
 
@@ -16,20 +27,31 @@ font-family:Segoe UI, sans-serif;
 background:#f5f7fb;
 }
 
+
+/* =========================================================
+HEADER BAR
+========================================================= */
+
 #header{
 background:linear-gradient(90deg,#4facfe,#00f2fe);
 color:white;
-padding:14px 20px;
-font-size:20px;
+padding:16px 24px;
+font-size:22px;
 font-weight:600;
+box-shadow:0 3px 10px rgba(0,0,0,0.1);
 }
+
+
+/* =========================================================
+INPUT CONTROL PANEL
+========================================================= */
 
 #controls{
 display:flex;
-gap:10px;
+gap:12px;
 padding:14px;
 background:white;
-box-shadow:0 2px 8px rgba(0,0,0,0.1);
+box-shadow:0 2px 8px rgba(0,0,0,0.08);
 align-items:center;
 flex-wrap:wrap;
 }
@@ -42,32 +64,48 @@ width:320px;
 font-size:14px;
 }
 
+
+/* =========================================================
+BUTTON STYLING
+========================================================= */
+
 button{
-padding:10px 16px;
+padding:10px 18px;
 border:none;
 border-radius:6px;
-background:#4facfe;
+background:linear-gradient(135deg,#4facfe,#00c6ff);
 color:white;
-font-weight:500;
+font-weight:600;
 cursor:pointer;
 transition:0.2s;
 }
 
 button:hover{
-background:#2e8ef7;
+transform:translateY(-1px);
+box-shadow:0 4px 8px rgba(0,0,0,0.15);
 }
 
 #resetBtn{
-background:#ff6b6b;
+background:linear-gradient(135deg,#ff6b6b,#ff3b3b);
 }
 
-#resetBtn:hover{
-background:#ff3b3b;
-}
+
+/* =========================================================
+MAP CONTAINER
+========================================================= */
 
 #map{
 height:70vh;
+margin:12px;
+border-radius:10px;
+overflow:hidden;
+box-shadow:0 4px 15px rgba(0,0,0,0.1);
 }
+
+
+/* =========================================================
+BOTTOM INFO PANEL
+========================================================= */
 
 #infoPanel{
 display:flex;
@@ -77,6 +115,11 @@ background:white;
 border-top:1px solid #ddd;
 font-size:14px;
 }
+
+
+/* =========================================================
+ROUTE LEGEND
+========================================================= */
 
 #legend{
 display:flex;
@@ -105,11 +148,21 @@ color:#444;
 </style>
 </head>
 
+
 <body>
+
+<!-- =========================================================
+SECTION 3 — HEADER
+========================================================= -->
 
 <div id="header">
 🌿 StillSpace — Smart Calm Routing
 </div>
+
+
+<!-- =========================================================
+SECTION 4 — USER INPUT CONTROLS
+========================================================= -->
 
 <div id="controls">
 
@@ -126,7 +179,17 @@ Reset
 
 </div>
 
+
+<!-- =========================================================
+SECTION 5 — MAP DISPLAY AREA
+========================================================= -->
+
 <div id="map"></div>
+
+
+<!-- =========================================================
+SECTION 6 — ROUTE INFORMATION PANEL
+========================================================= -->
 
 <div id="infoPanel">
 
@@ -151,7 +214,13 @@ Calm Route
 
 </div>
 
+
 <script>
+
+
+/* =========================================================
+SECTION 7 — INITIALIZE MAP
+========================================================= */
 
 let map = L.map('map').setView([30.7333, 76.7794], 15);
 
@@ -160,28 +229,59 @@ L.tileLayer(
 { attribution:'© OpenStreetMap' }
 ).addTo(map);
 
+
+
+/* =========================================================
+SECTION 8 — MAP STATE VARIABLES
+========================================================= */
+
 let startPoint=null;
 let endPoint=null;
+
 let startMarker=null;
 let endMarker=null;
+
 let calmLayer=null;
 let fastestLayer=null;
+
+
+
+/* =========================================================
+SECTION 9 — USER CLICK HANDLING
+User clicks map to select start and end
+========================================================= */
 
 map.on('click',function(e){
 
 if(!startPoint){
+
 startPoint=e.latlng;
-startMarker=L.marker(startPoint).addTo(map)
-.bindPopup("Start").openPopup();
+
+startMarker=L.marker(startPoint)
+.addTo(map)
+.bindPopup("Start")
+.openPopup();
+
 }
 
 else if(!endPoint){
+
 endPoint=e.latlng;
-endMarker=L.marker(endPoint).addTo(map)
-.bindPopup("End").openPopup();
+
+endMarker=L.marker(endPoint)
+.addTo(map)
+.bindPopup("End")
+.openPopup();
+
 }
 
 });
+
+
+
+/* =========================================================
+SECTION 10 — REQUEST SMART ROUTE FROM BACKEND
+========================================================= */
 
 function getSmartRoute(){
 
@@ -216,8 +316,14 @@ end_lon:endPoint.lng
 
 .then(data=>{
 
+
+/* Remove previous routes */
+
 if(calmLayer) map.removeLayer(calmLayer);
 if(fastestLayer) map.removeLayer(fastestLayer);
+
+
+/* Draw fastest route */
 
 fastestLayer=L.polyline(data.fastest_route,{
 color:"red",
@@ -225,13 +331,22 @@ weight:4,
 opacity:0.7
 }).addTo(map);
 
+
+/* Draw calm route */
+
 calmLayer=L.polyline(data.calm_route,{
 color:"green",
 weight:6,
 opacity:0.9
 }).addTo(map);
 
+
+/* Zoom map to route */
+
 map.fitBounds(calmLayer.getBounds());
+
+
+/* Update explanation panel */
 
 document.getElementById("modeText").innerText=data.mode;
 document.getElementById("explanationText").innerText=data.explanation;
@@ -244,6 +359,12 @@ alert("Backend error. Check console.");
 });
 
 }
+
+
+
+/* =========================================================
+SECTION 11 — RESET MAP STATE
+========================================================= */
 
 function resetMap(){
 
