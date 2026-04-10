@@ -1,382 +1,675 @@
 <!DOCTYPE html>
-<html>
-
+<html lang="en">
 <head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>StillSpace - Smart Calm Routing</title>
 
-<!-- =========================================================
-SECTION 1 — PAGE TITLE + LEAFLET MAP LIBRARIES MAPPING
-========================================================= -->
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;700&family=Manrope:wght@400;600;700&display=swap" rel="stylesheet">
 
-<title>StillSpace - Smart Calm Routing</title>
+    <style>
+        :root {
+            --bg-top: #d9edf6;
+            --bg-bottom: #f8f2e9;
+            --panel-bg: rgba(255, 255, 255, 0.9);
+            --panel-border: rgba(13, 37, 63, 0.12);
+            --title: #10263b;
+            --muted: #516476;
+            --primary: #0f66d8;
+            --primary-hover: #0d55b3;
+            --calm: #158f5f;
+            --calm-hover: #127750;
+            --fastest-color: #1976d2;
+            --calm-color: #17a26b;
+            --warning: #925f10;
+            --shadow: 0 16px 38px rgba(16, 38, 59, 0.2);
+        }
 
-<link rel="stylesheet"
-href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
 
-<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+        body {
+            width: 100vw;
+            height: 100vh;
+            overflow: hidden;
+            background: linear-gradient(155deg, var(--bg-top), var(--bg-bottom));
+            font-family: "Manrope", "Segoe UI", sans-serif;
+            color: var(--title);
+        }
 
+        #map {
+            width: 100%;
+            height: 100%;
+        }
 
-<!-- =========================================================
-SECTION 2 — GLOBAL STYLING of page
+        .map-overlay {
+            position: absolute;
+            inset: 0;
+            pointer-events: none;
+            background:
+                radial-gradient(64rem 50rem at 90% 100%, rgba(19, 121, 81, 0.16), transparent 65%),
+                radial-gradient(55rem 45rem at 5% 0%, rgba(15, 102, 216, 0.17), transparent 62%);
+            z-index: 350;
+        }
 
-========================================================= -->
+        .panel {
+            position: absolute;
+            top: 18px;
+            left: 18px;
+            z-index: 1000;
+            width: min(380px, calc(100vw - 36px));
+            pointer-events: auto;
+            padding: 18px;
+            border-radius: 18px;
+            border: 1px solid var(--panel-border);
+            background: var(--panel-bg);
+            backdrop-filter: blur(10px);
+            box-shadow: var(--shadow);
+            display: flex;
+            flex-direction: column;
+            gap: 14px;
+            animation: panelSlide 320ms ease-out;
+        }
 
-<style>
+        @keyframes panelSlide {
+            from {
+                transform: translateY(10px);
+                opacity: 0;
+            }
+            to {
+                transform: translateY(0);
+                opacity: 1;
+            }
+        }
 
-body{
-margin:1;
-font-family:Segoe UI, sans-serif;
-background:#f5f7fb;
-}
+        .brand h1 {
+            font-family: "Space Grotesk", "Manrope", sans-serif;
+            font-size: 1.35rem;
+            letter-spacing: 0.2px;
+            color: var(--title);
+            margin-bottom: 3px;
+        }
 
+        .brand p {
+            font-size: 0.85rem;
+            color: var(--muted);
+            line-height: 1.35;
+        }
 
-/* =========================================================
-HEADER BAR
-========================================================= */
+        .instruction {
+            font-size: 0.88rem;
+            color: var(--title);
+            line-height: 1.35;
+            background: rgba(255, 255, 255, 0.7);
+            border: 1px solid rgba(13, 37, 63, 0.1);
+            border-radius: 12px;
+            padding: 10px 12px;
+        }
 
-#header{
-background:linear-gradient(90deg,#4facfe,#00f2fe);
-color:white;
-padding:16px 24px;
-font-size:22px;
-font-weight:600;
-box-shadow:0 3px 10px rgba(0,0,0,0.1);
-}
+        .controls {
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+        }
 
+        .toggle-row {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 8px 10px;
+            border-radius: 10px;
+            background: rgba(15, 102, 216, 0.08);
+            border: 1px solid rgba(15, 102, 216, 0.14);
+            color: var(--title);
+            font-size: 0.86rem;
+            font-weight: 700;
+        }
 
-/* =========================================================
-INPUT CONTROL PANEL
-========================================================= */
+        .switch {
+            position: relative;
+            display: inline-block;
+            width: 46px;
+            height: 25px;
+        }
 
-#controls{
-display:flex;
-gap:12px;
-padding:14px;
-background:white;
-box-shadow:0 2px 8px rgba(0,0,0,0.08);
-align-items:center;
-flex-wrap:wrap;
-}
+        .switch input {
+            opacity: 0;
+            width: 0;
+            height: 0;
+        }
 
-input{
-padding:10px;
-border-radius:6px;
-border:1px solid #ccc;
-width:320px;
-font-size:14px;
-}
+        .slider {
+            position: absolute;
+            inset: 0;
+            cursor: pointer;
+            background: #c4d4e4;
+            border-radius: 999px;
+            transition: all 180ms ease;
+        }
 
+        .slider::before {
+            content: "";
+            position: absolute;
+            height: 19px;
+            width: 19px;
+            left: 3px;
+            top: 3px;
+            border-radius: 50%;
+            background: #ffffff;
+            transition: transform 180ms ease;
+        }
 
-/* =========================================================
-BUTTON STYLING
-========================================================= */
+        .switch input:checked + .slider {
+            background: var(--calm);
+        }
 
-button{
-padding:10px 18px;
-border:none;
-border-radius:6px;
-background:linear-gradient(135deg,#4facfe,#00c6ff);
-color:white;
-font-weight:600;
-cursor:pointer;
-transition:0.2s;
-}
+        .switch input:checked + .slider::before {
+            transform: translateX(21px);
+        }
 
-button:hover{
-transform:translateY(-1px);
-box-shadow:0 4px 8px rgba(0,0,0,0.15);
-}
+        .button-row {
+            display: flex;
+            gap: 10px;
+        }
 
-#resetBtn{
-background:linear-gradient(135deg,#ff6b6b,#ff3b3b);
-}
+        button {
+            border: none;
+            border-radius: 11px;
+            padding: 12px 10px;
+            font-family: "Space Grotesk", "Manrope", sans-serif;
+            font-size: 0.9rem;
+            letter-spacing: 0.2px;
+            cursor: pointer;
+            transition: transform 160ms ease, box-shadow 160ms ease, background 160ms ease;
+        }
 
+        .btn-route {
+            flex: 1.2;
+            color: #fff;
+            background: linear-gradient(140deg, var(--primary), #29a4d8);
+            box-shadow: 0 8px 18px rgba(15, 102, 216, 0.3);
+        }
 
-/* =========================================================
-MAP CONTAINER
-========================================================= */
+        .btn-route:hover {
+            transform: translateY(-1px);
+            background: linear-gradient(140deg, var(--primary-hover), #1784b0);
+        }
 
-#map{
-height:70vh;
-margin:12px;
-border-radius:10px;
-overflow:hidden;
-box-shadow:0 4px 15px rgba(0,0,0,0.1);
-}
+        .btn-reset {
+            flex: 0.8;
+            color: var(--title);
+            background: rgba(17, 39, 62, 0.08);
+        }
 
+        .btn-reset:hover {
+            transform: translateY(-1px);
+            background: rgba(17, 39, 62, 0.14);
+        }
 
-/* =========================================================
-BOTTOM INFO PANEL
-========================================================= */
+        .loading {
+            display: none;
+            align-items: center;
+            gap: 9px;
+            padding: 8px 10px;
+            border-radius: 10px;
+            background: rgba(21, 143, 95, 0.1);
+            border: 1px solid rgba(21, 143, 95, 0.2);
+            color: #11593e;
+            font-size: 0.84rem;
+            font-weight: 700;
+        }
 
-#infoPanel{
-display:flex;
-justify-content:space-between;
-padding:15px;
-background:white;
-border-top:1px solid #ddd;
-font-size:14px;
-}
+        .loading.active {
+            display: flex;
+        }
 
+        .spinner {
+            width: 16px;
+            height: 16px;
+            border: 2px solid rgba(17, 89, 62, 0.2);
+            border-top-color: #11593e;
+            border-radius: 50%;
+            animation: spin 800ms linear infinite;
+        }
 
-/* =========================================================
-ROUTE LEGEND
-========================================================= */
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
 
-#legend{
-display:flex;
-gap:20px;
-}
+        .results {
+            display: none;
+            flex-direction: column;
+            gap: 10px;
+            margin-top: 2px;
+        }
 
-.legendItem{
-display:flex;
-align-items:center;
-gap:6px;
-}
+        .results.visible {
+            display: flex;
+            animation: fadeIn 240ms ease-out;
+        }
 
-.colorBox{
-width:14px;
-height:14px;
-border-radius:3px;
-}
+        @keyframes fadeIn {
+            from {
+                opacity: 0;
+                transform: translateY(6px);
+            }
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
 
-.fastest{background:red;}
-.calm{background:green;}
+        .stat-card {
+            border-radius: 12px;
+            border: 1px solid rgba(13, 37, 63, 0.1);
+            background: rgba(255, 255, 255, 0.75);
+            padding: 10px 12px;
+        }
 
-#stats{
-color:#444;
-}
+        .stat-card.fastest {
+            border-left: 5px solid var(--fastest-color);
+        }
 
-</style>
+        .stat-card.calm {
+            border-left: 5px solid var(--calm-color);
+        }
+
+        .stat-title {
+            font-family: "Space Grotesk", "Manrope", sans-serif;
+            font-size: 0.86rem;
+            margin-bottom: 2px;
+        }
+
+        .stat-detail {
+            font-size: 0.82rem;
+            color: var(--muted);
+        }
+
+        .comparison {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 8px;
+        }
+
+        .chip {
+            border-radius: 10px;
+            padding: 9px 8px;
+            text-align: center;
+            border: 1px solid rgba(146, 95, 16, 0.2);
+            background: rgba(250, 236, 210, 0.72);
+        }
+
+        .chip strong {
+            display: block;
+            font-size: 0.95rem;
+            color: #6f4510;
+            font-family: "Space Grotesk", "Manrope", sans-serif;
+        }
+
+        .chip span {
+            font-size: 0.72rem;
+            color: var(--warning);
+        }
+
+        .legend {
+            display: flex;
+            gap: 12px;
+            align-items: center;
+            font-size: 0.74rem;
+            color: var(--muted);
+        }
+
+        .legend-dot {
+            width: 9px;
+            height: 9px;
+            border-radius: 50%;
+            display: inline-block;
+            margin-right: 5px;
+        }
+
+        .legend-dot.fastest {
+            background: var(--fastest-color);
+        }
+
+        .legend-dot.calm {
+            background: var(--calm-color);
+        }
+
+        .leaflet-control-zoom {
+            border: none;
+            box-shadow: 0 8px 20px rgba(12, 34, 54, 0.22);
+        }
+
+        .leaflet-control-zoom a {
+            border: none;
+            color: var(--title);
+            font-weight: 700;
+        }
+
+        @media (max-width: 760px) {
+            .panel {
+                top: auto;
+                bottom: 0;
+                left: 0;
+                border-radius: 18px 18px 0 0;
+                width: 100%;
+                max-height: 55vh;
+                overflow-y: auto;
+            }
+        }
+    </style>
 </head>
-
-
 <body>
-
-<!-- =========================================================
-SECTION 3 — HEADER
-========================================================= -->
-
-<div id="header">
-🌿 StillSpace — Smart Calm Routing
-</div>
-
-
-<!-- =========================================================
-SECTION 4 — USER INPUT CONTROLS
-========================================================= -->
-
-<div id="controls">
-
-<input id="moodInput"
-placeholder="Describe your mood (e.g. peaceful sunset walk, quiet ride...)"/>
-
-<button onclick="getSmartRoute()">
-Find Smart Route
-</button>
-
-<button id="resetBtn" onclick="resetMap()">
-Reset
-</button>
-
-</div>
-
-
-<!-- =========================================================
-SECTION 5 — MAP DISPLAY AREA
-========================================================= -->
-
-<div id="map"></div>
-
-
-<!-- =========================================================
-SECTION 6 — ROUTE INFORMATION PANEL
-========================================================= -->
-
-<div id="infoPanel">
-
-<div id="legend">
-
-<div class="legendItem">
-<div class="colorBox fastest"></div>
-Fastest Route
-</div>
-
-<div class="legendItem">
-<div class="colorBox calm"></div>
-Calm Route
-</div>
-
-</div>
-
-<div id="stats">
-<b>Mode:</b> <span id="modeText">-</span> |
-<b>Explanation:</b> <span id="explanationText">-</span>
-</div>
-</div>
-<script>
-
-
-/* =========================================================
-SECTION 7 — INITIALIZE MAP
-========================================================= */
-
-let map = L.map('map').setView([30.7333, 76.7794], 15);
-
-L.tileLayer(
-'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',
-{ attribution:'© OpenStreetMap' }
-).addTo(map);
-
-
-
-/* =========================================================
-SECTION 8 — MAP STATE VARIABLES
-========================================================= */
-
-let startPoint=null;
-let endPoint=null;
-
-let startMarker=null;
-let endMarker=null;
-
-let calmLayer=null;
-let fastestLayer=null;
-
-/* =========================================================
-SECTION 9 — USER CLICK HANDLING
-User clicks map to select start and end
-========================================================= */
-
-map.on('click',function(e){
-
-if(!startPoint){
-
-startPoint=e.latlng;
-
-startMarker=L.marker(startPoint)
-.addTo(map)
-.bindPopup("Start")
-.openPopup();
-
-}
-
-else if(!endPoint){
-
-endPoint=e.latlng;
-
-endMarker=L.marker(endPoint)
-.addTo(map)
-.bindPopup("End")
-.openPopup();
-
-}
-
-});
-
-
-
-/* =========================================================
-SECTION 10 — REQUEST SMART ROUTE FROM BACKEND
-========================================================= */
-
-function getSmartRoute(){
-
-const textInput=document.getElementById("moodInput").value;
-
-if(!startPoint || !endPoint){
-alert("Click start and end points first.");
-return;
-}
-
-fetch("/smart_route",{
-
-method:"POST",
-
-headers:{
-"Content-Type":"application/json"
-},
-
-body:JSON.stringify({
-
-text:textInput,
-start_lat:startPoint.lat,
-start_lon:startPoint.lng,
-end_lat:endPoint.lat,
-end_lon:endPoint.lng
-
-})
-
-})
-
-.then(res=>res.json())
-
-.then(data=>{
-
-
-/* Remove previous routes */
-
-if(calmLayer) map.removeLayer(calmLayer);
-if(fastestLayer) map.removeLayer(fastestLayer);
-
-
-/* Draw fastest route */
-
-fastestLayer=L.polyline(data.fastest_route,{
-color:"red",
-weight:4,
-opacity:0.7
-}).addTo(map);
-
-
-/* Draw calm route */
-
-calmLayer=L.polyline(data.calm_route,{
-color:"green",
-weight:6,
-opacity:0.9
-}).addTo(map);
-
-
-/* Zoom map to route */
-
-map.fitBounds(calmLayer.getBounds());
-
-
-/* Update explanation panel */
-
-document.getElementById("modeText").innerText=data.mode;
-document.getElementById("explanationText").innerText=data.explanation;
-
-})
-
-.catch(err=>{
-console.error(err);
-alert("Backend error. Check console.");
-});
-
-}
-
-
-/* =========================================================
-SECTION 11 — RESET MAP STATE in case of reset options
-========================================================= */
-
-function resetMap(){
-
-if(startMarker) map.removeLayer(startMarker);
-if(endMarker) map.removeLayer(endMarker);
-if(calmLayer) map.removeLayer(calmLayer);
-if(fastestLayer) map.removeLayer(fastestLayer);
-
-startPoint=null;
-endPoint=null;
-
-document.getElementById("modeText").innerText="-";
-document.getElementById("explanationText").innerText="-";
-
-}
-
-</script>
-
+    <div id="map"></div>
+    <div class="map-overlay"></div>
+
+    <aside class="panel">
+        <div class="brand">
+            <h1>StillSpace Router</h1>
+            <p>Smarter walking routes with fast and calm path comparison.</p>
+        </div>
+
+        <div class="instruction" id="instructionText">
+            Click on the map to place your <strong>start point</strong>.
+        </div>
+
+        <div class="controls">
+            <div class="toggle-row">
+                <span>Prioritize Calm Route</span>
+                <label class="switch">
+                    <input type="checkbox" id="calmToggle" checked>
+                    <span class="slider"></span>
+                </label>
+            </div>
+
+            <div class="button-row">
+                <button id="routeBtn" class="btn-route">Find Smart Route</button>
+                <button id="resetBtn" class="btn-reset">Reset</button>
+            </div>
+        </div>
+
+        <div id="loadingBox" class="loading">
+            <div class="spinner"></div>
+            <span>Computing best route options...</span>
+        </div>
+
+        <section class="results" id="results">
+            <div class="legend">
+                <div><span class="legend-dot fastest"></span>Shortest</div>
+                <div><span class="legend-dot calm"></span>Calm</div>
+            </div>
+
+            <div class="stat-card fastest">
+                <div class="stat-title">Shortest Route (Blue)</div>
+                <div class="stat-detail" id="shortestStats">-</div>
+            </div>
+
+            <div class="stat-card calm" id="calmCard">
+                <div class="stat-title">Calm Route (Green)</div>
+                <div class="stat-detail" id="calmStats">-</div>
+            </div>
+
+            <div class="comparison" id="comparisonBox">
+                <div class="chip">
+                    <strong id="extraDistance">-</strong>
+                    <span>Extra Distance</span>
+                </div>
+                <div class="chip">
+                    <strong id="extraTime">-</strong>
+                    <span>Extra Time</span>
+                </div>
+                <div class="chip">
+                    <strong id="diffPct">-</strong>
+                    <span>Distance Diff</span>
+                </div>
+            </div>
+        </section>
+    </aside>
+
+    <script>
+        const DEFAULT_CENTER = [30.7333, 76.7794];
+        const DEFAULT_ZOOM = 14;
+
+        const map = L.map("map", {
+            zoomControl: false,
+            preferCanvas: true
+        }).setView(DEFAULT_CENTER, DEFAULT_ZOOM);
+        L.control.zoom({ position: "topright" }).addTo(map);
+
+        L.tileLayer("https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png", {
+            attribution: '&copy; <a href="https://carto.com/">CARTO</a>',
+            maxZoom: 19
+        }).addTo(map);
+
+        let startPoint = null;
+        let endPoint = null;
+        let startMarker = null;
+        let endMarker = null;
+        let fastestLayer = null;
+        let calmLayer = null;
+        let animationFrameIds = [];
+
+        const instructionText = document.getElementById("instructionText");
+        const loadingBox = document.getElementById("loadingBox");
+        const results = document.getElementById("results");
+        const calmCard = document.getElementById("calmCard");
+        const comparisonBox = document.getElementById("comparisonBox");
+
+        function clearAnimations() {
+            for (const id of animationFrameIds) {
+                cancelAnimationFrame(id);
+            }
+            animationFrameIds = [];
+        }
+
+        function setLoading(state) {
+            loadingBox.classList.toggle("active", state);
+        }
+
+        function clearRouteLayers() {
+            clearAnimations();
+            if (fastestLayer) {
+                map.removeLayer(fastestLayer);
+                fastestLayer = null;
+            }
+            if (calmLayer) {
+                map.removeLayer(calmLayer);
+                calmLayer = null;
+            }
+        }
+
+        function animatePolyline(coords, style, duration = 900) {
+            const layer = L.polyline([], style).addTo(map);
+            if (!coords || coords.length === 0) {
+                return layer;
+            }
+            if (coords.length < 3) {
+                layer.setLatLngs(coords);
+                return layer;
+            }
+
+            const startTime = performance.now();
+            const minChunk = 3;
+            const drawStep = (now) => {
+                const progress = Math.min((now - startTime) / duration, 1);
+                const count = Math.max(minChunk, Math.floor(coords.length * progress));
+                layer.setLatLngs(coords.slice(0, count));
+                if (progress < 1) {
+                    const rafId = requestAnimationFrame(drawStep);
+                    animationFrameIds.push(rafId);
+                }
+            };
+            const rafId = requestAnimationFrame(drawStep);
+            animationFrameIds.push(rafId);
+            return layer;
+        }
+
+        function formatStats(stats) {
+            return `${stats.dist_km} km | ~${stats.time_min} min walk`;
+        }
+
+        function fitRouteBounds(routes) {
+            const allCoords = [];
+            for (const route of routes) {
+                if (route && route.length) {
+                    allCoords.push(...route);
+                }
+            }
+            if (!allCoords.length) {
+                return;
+            }
+            const bounds = L.latLngBounds(allCoords);
+            if (bounds.isValid()) {
+                map.fitBounds(bounds, { padding: [60, 60], maxZoom: 17 });
+            }
+        }
+
+        function updateComparison(comparison) {
+            const distText = comparison.extra_dist_km >= 0
+                ? `+${comparison.extra_dist_km} km`
+                : `${comparison.extra_dist_km} km`;
+            const timeText = comparison.extra_time_min >= 0
+                ? `+${comparison.extra_time_min} min`
+                : `${comparison.extra_time_min} min`;
+            const pctText = comparison.dist_diff_pct >= 0
+                ? `+${comparison.dist_diff_pct}%`
+                : `${comparison.dist_diff_pct}%`;
+
+            document.getElementById("extraDistance").innerText = distText;
+            document.getElementById("extraTime").innerText = timeText;
+            document.getElementById("diffPct").innerText = pctText;
+        }
+
+        function addPointMarker(point, label, markerColor) {
+            const icon = L.divIcon({
+                className: "custom-dot",
+                html: `<div style="
+                    width:16px;height:16px;border-radius:999px;
+                    border:2px solid #fff;background:${markerColor};
+                    box-shadow:0 3px 10px rgba(16,38,59,0.35);
+                "></div>`,
+                iconSize: [16, 16],
+                iconAnchor: [8, 8]
+            });
+            return L.marker(point, { icon }).addTo(map).bindPopup(label);
+        }
+
+        map.on("click", (event) => {
+            if (!startPoint) {
+                startPoint = event.latlng;
+                startMarker = addPointMarker(startPoint, "Start", "#0f66d8");
+                startMarker.openPopup();
+                instructionText.innerHTML = "Now click to place your <strong>destination</strong>.";
+                return;
+            }
+            if (!endPoint) {
+                endPoint = event.latlng;
+                endMarker = addPointMarker(endPoint, "Destination", "#17a26b");
+                endMarker.openPopup();
+                instructionText.innerHTML = "Points selected. Press <strong>Find Smart Route</strong>.";
+            }
+        });
+
+        async function getSmartRoute() {
+            if (!startPoint || !endPoint) {
+                alert("Please select both start and destination points.");
+                return;
+            }
+
+            const calmMode = document.getElementById("calmToggle").checked;
+            setLoading(true);
+            results.classList.remove("visible");
+
+            try {
+                const response = await fetch("/smart_route", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({
+                        start_lat: startPoint.lat,
+                        start_lon: startPoint.lng,
+                        end_lat: endPoint.lat,
+                        end_lon: endPoint.lng,
+                        calm_mode: calmMode
+                    })
+                });
+
+                const data = await response.json();
+                if (!response.ok) {
+                    throw new Error(data.error || "Routing failed.");
+                }
+
+                clearRouteLayers();
+
+                const fastestStyle = {
+                    color: "#1976d2",
+                    weight: calmMode ? 5 : 6,
+                    opacity: 0.9,
+                    lineCap: "round",
+                    lineJoin: "round"
+                };
+                fastestLayer = animatePolyline(data.fastest_route, fastestStyle, 750);
+
+                if (calmMode) {
+                    const calmStyle = {
+                        color: "#17a26b",
+                        weight: 6,
+                        opacity: 0.95,
+                        lineCap: "round",
+                        lineJoin: "round"
+                    };
+                    calmLayer = animatePolyline(data.calm_route, calmStyle, 950);
+                    calmCard.style.display = "block";
+                    comparisonBox.style.display = "grid";
+                    fitRouteBounds([data.fastest_route, data.calm_route]);
+                } else {
+                    calmCard.style.display = "none";
+                    comparisonBox.style.display = "none";
+                    fitRouteBounds([data.fastest_route]);
+                }
+
+                document.getElementById("shortestStats").innerText = formatStats(data.shortest_stats);
+                document.getElementById("calmStats").innerText = formatStats(data.calm_stats);
+                updateComparison(data.comparison);
+
+                results.classList.add("visible");
+                instructionText.innerHTML = "Route ready. You can reset and choose another journey.";
+            } catch (error) {
+                console.error(error);
+                alert(error.message || "Unable to calculate route.");
+            } finally {
+                setLoading(false);
+            }
+        }
+
+        function resetMap() {
+            if (startMarker) {
+                map.removeLayer(startMarker);
+                startMarker = null;
+            }
+            if (endMarker) {
+                map.removeLayer(endMarker);
+                endMarker = null;
+            }
+            startPoint = null;
+            endPoint = null;
+
+            clearRouteLayers();
+            results.classList.remove("visible");
+            calmCard.style.display = "block";
+            comparisonBox.style.display = "grid";
+            instructionText.innerHTML = "Click on the map to place your <strong>start point</strong>.";
+            map.setView(DEFAULT_CENTER, DEFAULT_ZOOM);
+        }
+
+        document.getElementById("routeBtn").addEventListener("click", getSmartRoute);
+        document.getElementById("resetBtn").addEventListener("click", resetMap);
+    </script>
 </body>
 </html>
