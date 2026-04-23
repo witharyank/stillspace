@@ -1,0 +1,7 @@
+Flask==3.0.3
+networkx==3.3
+osmnx==1.9.3
+shapely==2.0.4
+requests==2.32.3
+python-dotenv==1.0.1
+gunicorn==22.0.0

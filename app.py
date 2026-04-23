@@ -1,88 +1,62 @@
 from __future__ import annotations
 
-import ast
 import heapq
 import logging
 import math
+import os
+import time
+import uuid
 from typing import Dict, Iterable, List, Optional, Tuple
 
 import networkx as nx
 import osmnx as ox
+from dotenv import load_dotenv
 from flask import Flask, jsonify, render_template, request
 from shapely import wkt
 
+from route_modes import get_mode_instance
+from routing_utils import _as_float
+from safety_zones import get_safety_zones_geojson
+from weather_service import get_current_weather
+
+load_dotenv()
+
 app = Flask(__name__)
 
+LOG_LEVEL = os.getenv("LOG_LEVEL", "INFO").upper()
 logging.basicConfig(
-    level=logging.INFO,
+    level=getattr(logging, LOG_LEVEL, logging.INFO),
     format="%(asctime)s %(levelname)s %(name)s: %(message)s",
 )
 logger = logging.getLogger("stillspace")
 
-logger.info("Loading graph from city.graphml...")
-G = ox.load_graphml("city.graphml")
+GRAPH_PATH = os.getenv("GRAPH_PATH", "city.graphml")
+AVERAGE_WALK_MPS = 1.4
+VALID_ROUTE_MODES = {"fastest", "calm", "safe", "accessibility", "dog", "weather"}
+VALID_DOG_SUB_MODES = {"quick", "relax", "long", "quiet", "park_priority"}
+
+logger.info("Loading graph from %s ...", GRAPH_PATH)
+G = ox.load_graphml(GRAPH_PATH)
 logger.info("Graph loaded: %s nodes, %s edges", len(G.nodes), len(G.edges))
 
-AVERAGE_WALK_MPS = 1.4
-
-HIGHWAY_STRESS = {
-    "footway": 0.85,
-    "pedestrian": 0.85,
-    "path": 0.9,
-    "cycleway": 0.9,
-    "living_street": 0.95,
-    "residential": 1.0,
-    "service": 1.15,
-    "unclassified": 1.25,
-    "tertiary": 1.4,
-    "tertiary_link": 1.5,
-    "secondary": 2.0,
-    "secondary_link": 2.2,
-    "primary": 2.8,
-    "primary_link": 3.0,
-    "trunk": 3.4,
-    "trunk_link": 3.7,
-    "motorway": 4.0,
-    "motorway_link": 4.2,
-}
-
 EdgeRef = Tuple[int, int, int]
+_EDGE_POINTS_CACHE: Dict[EdgeRef, List[Tuple[float, float]]] = {}
 
 
-def _as_float(value: object, fallback: float = 0.0) -> float:
-    try:
-        return float(value)
-    except (TypeError, ValueError):
-        return fallback
-
-
-def _normalize_highway(highway: object) -> str:
-    if isinstance(highway, (list, tuple)) and highway:
-        return str(highway[0]).lower()
-    if isinstance(highway, str):
-        value = highway.strip()
-        if value.startswith("[") and value.endswith("]"):
-            try:
-                parsed = ast.literal_eval(value)
-                if isinstance(parsed, (list, tuple)) and parsed:
-                    return str(parsed[0]).lower()
-            except (ValueError, SyntaxError):
-                pass
-        return value.lower()
-    return "unclassified"
-
-
-def _calm_base_weight(edge_data: Dict[str, object]) -> float:
-    length = _as_float(edge_data.get("length"), 1.0)
-    highway = _normalize_highway(edge_data.get("highway", "unclassified"))
-    stress = HIGHWAY_STRESS.get(highway, 1.5)
-    return max(length * stress, 0.1)
-
-
-def _initialize_edge_metrics() -> None:
-    for _, _, _, edge_data in G.edges(keys=True, data=True):
-        edge_data["length"] = _as_float(edge_data.get("length"), 1.0)
-        edge_data["calm_base_weight"] = _calm_base_weight(edge_data)
+def _json_error(
+    message: str,
+    status: int = 400,
+    *,
+    code: str = "bad_request",
+    request_id: Optional[str] = None,
+    details: Optional[Dict[str, object]] = None,
+):
+    payload: Dict[str, object] = {"error": message, "code": code}
+    if request_id:
+        payload["request_id"] = request_id
+    if details:
+        payload["details"] = details
+    return jsonify(payload), status
 
 
 def _distance_sq(a: Tuple[float, float], b: Tuple[float, float]) -> float:
@@ -91,7 +65,16 @@ def _distance_sq(a: Tuple[float, float], b: Tuple[float, float]) -> float:
     return dx * dx + dy * dy
 
 
-def _edge_lon_lat_points(u: int, v: int, edge_data: Dict[str, object]) -> List[Tuple[float, float]]:
+def _edge_lon_lat_points(
+    u: int,
+    v: int,
+    edge_data: Dict[str, object],
+    edge_key: Optional[int] = None,
+) -> List[Tuple[float, float]]:
+    cache_key = (u, v, edge_key) if edge_key is not None else None
+    if cache_key and cache_key in _EDGE_POINTS_CACHE:
+        return _EDGE_POINTS_CACHE[cache_key]
+
     ux = _as_float(G.nodes[u].get("x"))
     uy = _as_float(G.nodes[u].get("y"))
     vx = _as_float(G.nodes[v].get("x"))
@@ -101,10 +84,9 @@ def _edge_lon_lat_points(u: int, v: int, edge_data: Dict[str, object]) -> List[T
     geometry = edge_data.get("geometry")
     if geometry is not None:
         try:
-            if isinstance(geometry, str):
-                geometry = wkt.loads(geometry)
-            if hasattr(geometry, "coords"):
-                points = [(float(x), float(y)) for x, y in geometry.coords]
+            parsed = wkt.loads(geometry) if isinstance(geometry, str) else geometry
+            if hasattr(parsed, "coords"):
+                points = [(float(x), float(y)) for x, y in parsed.coords]
         except Exception:
             points = []
 
@@ -120,6 +102,9 @@ def _edge_lon_lat_points(u: int, v: int, edge_data: Dict[str, object]) -> List[T
     reverse_cost = _distance_sq(start, target) + _distance_sq(end, source)
     if reverse_cost < forward_cost:
         points.reverse()
+
+    if cache_key:
+        _EDGE_POINTS_CACHE[cache_key] = points
 
     return points
 
@@ -144,35 +129,27 @@ def _turn_penalty_meters(
     prev_k: int,
     next_v: int,
     next_k: int,
+    route_mode,
 ) -> float:
     prev_data = G.get_edge_data(prev_u, curr_u, prev_k)
     next_data = G.get_edge_data(curr_u, next_v, next_k)
     if not prev_data or not next_data:
         return 0.0
 
-    prev_points = _edge_lon_lat_points(prev_u, curr_u, prev_data)
-    next_points = _edge_lon_lat_points(curr_u, next_v, next_data)
+    prev_points = _edge_lon_lat_points(prev_u, curr_u, prev_data, prev_k)
+    next_points = _edge_lon_lat_points(curr_u, next_v, next_data, next_k)
     if len(prev_points) < 2 or len(next_points) < 2:
         return 0.0
 
     incoming = _bearing_degrees(prev_points[-2], prev_points[-1])
     outgoing = _bearing_degrees(next_points[0], next_points[1])
     delta = _turn_angle(incoming, outgoing)
-
-    if delta < 25:
-        return 0.0
-    if delta < 55:
-        return 8.0
-    if delta < 95:
-        return 18.0
-    if delta < 140:
-        return 36.0
-    return 60.0
+    return route_mode.get_turn_penalty(delta)
 
 
-def _intersection_penalty_meters(node: int) -> float:
+def _intersection_penalty_meters(node: int, route_mode) -> float:
     street_count = _as_float(G.nodes[node].get("street_count"), 0.0)
-    return max(street_count - 2.0, 0.0) * 2.5
+    return route_mode.get_intersection_penalty(street_count)
 
 
 def _pick_best_edge(u: int, v: int, weight_attr: str) -> EdgeRef:
@@ -196,11 +173,10 @@ def _node_path_to_edge_path(node_path: List[int], weight_attr: str) -> List[Edge
     return edges
 
 
-def _calm_edge_path(origin: int, destination: int) -> Tuple[List[EdgeRef], float]:
+def _smart_edge_path(origin: int, destination: int, route_mode) -> Tuple[List[EdgeRef], float]:
     if origin == destination:
         return [], 0.0
 
-    # State-space Dijkstra: cost depends on the previously traversed edge because of turn penalties.
     start_state = (origin, None, None)
     dist: Dict[Tuple[Optional[int], Optional[int], Optional[int]], float] = {start_state: 0.0}
     parent: Dict[
@@ -221,11 +197,20 @@ def _calm_edge_path(origin: int, destination: int) -> Tuple[List[EdgeRef], float
             break
 
         for _, next_node, next_key, next_edge_data in G.out_edges(curr_node, keys=True, data=True):
-            edge_cost = _as_float(next_edge_data.get("calm_base_weight"), 1.0)
+            lon_lat_points = _edge_lon_lat_points(curr_node, next_node, next_edge_data, next_key)
+            edge_cost = route_mode.get_weight(curr_node, next_node, next_edge_data, lon_lat_points)
+
             turn_cost = 0.0
             if prev_node is not None and prev_key is not None:
-                turn_cost = _turn_penalty_meters(prev_node, curr_node, prev_key, next_node, next_key)
-            intersection_cost = _intersection_penalty_meters(curr_node)
+                turn_cost = _turn_penalty_meters(
+                    prev_node,
+                    curr_node,
+                    prev_key,
+                    next_node,
+                    next_key,
+                    route_mode,
+                )
+            intersection_cost = _intersection_penalty_meters(curr_node, route_mode)
             total_step_cost = edge_cost + turn_cost + intersection_cost
 
             next_state = (next_node, curr_node, next_key)
@@ -236,7 +221,7 @@ def _calm_edge_path(origin: int, destination: int) -> Tuple[List[EdgeRef], float
                 heapq.heappush(heap, (new_cost, next_node, curr_node, next_key))
 
     if best_destination_state is None:
-        raise nx.NetworkXNoPath(f"No calm route between {origin} and {destination}")
+        raise nx.NetworkXNoPath(f"No smart route between {origin} and {destination}")
 
     edge_path: List[EdgeRef] = []
     cursor = best_destination_state
@@ -245,7 +230,6 @@ def _calm_edge_path(origin: int, destination: int) -> Tuple[List[EdgeRef], float
         edge_path.append(edge)
         cursor = prev_state
     edge_path.reverse()
-
     return edge_path, dist[best_destination_state]
 
 
@@ -255,14 +239,13 @@ def _edge_path_to_leaflet_coords(edge_path: List[EdgeRef], fallback_node: Option
             return []
         return [[_as_float(G.nodes[fallback_node]["y"]), _as_float(G.nodes[fallback_node]["x"])]]
 
-    # Merge edge geometries into one continuous LineString-like coordinate list for Leaflet.
     route_coords: List[List[float]] = []
     for idx, (u, v, k) in enumerate(edge_path):
         edge_data = G.get_edge_data(u, v, k)
         if not edge_data:
             continue
 
-        lon_lat_points = _edge_lon_lat_points(u, v, edge_data)
+        lon_lat_points = _edge_lon_lat_points(u, v, edge_data, k)
         lat_lon_points = [[lat, lon] for lon, lat in lon_lat_points]
 
         if idx == 0:
@@ -277,7 +260,6 @@ def _edge_path_to_leaflet_coords(edge_path: List[EdgeRef], fallback_node: Option
                 route_coords.extend(lat_lon_points[1:])
             else:
                 route_coords.extend(lat_lon_points)
-
     return route_coords
 
 
@@ -292,31 +274,93 @@ def _path_length_meters(edge_path: Iterable[EdgeRef]) -> float:
 
 def _stats(distance_meters: float) -> Dict[str, float]:
     minutes = (distance_meters / AVERAGE_WALK_MPS) / 60.0
-    return {
-        "dist_km": round(distance_meters / 1000.0, 2),
-        "time_min": round(minutes),
-    }
+    return {"dist_km": round(distance_meters / 1000.0, 2), "time_min": round(minutes)}
 
 
-def _comparison(shortest_dist: float, calm_dist: float) -> Dict[str, float]:
-    extra_m = calm_dist - shortest_dist
+def _comparison(shortest_dist: float, smart_dist: float) -> Dict[str, float]:
+    extra_m = smart_dist - shortest_dist
     shortest_time = (shortest_dist / AVERAGE_WALK_MPS) / 60.0
-    calm_time = (calm_dist / AVERAGE_WALK_MPS) / 60.0
+    smart_time = (smart_dist / AVERAGE_WALK_MPS) / 60.0
     pct = (extra_m / shortest_dist * 100.0) if shortest_dist else 0.0
     return {
         "extra_dist_km": round(extra_m / 1000.0, 2),
-        "extra_time_min": round(calm_time - shortest_time),
+        "extra_time_min": round(smart_time - shortest_time),
         "dist_diff_pct": round(pct, 1),
     }
 
 
-def _edge_path_to_nodes(origin: int, edge_path: List[EdgeRef]) -> List[int]:
-    if not edge_path:
-        return [origin]
-    nodes = [origin]
-    for _, v, _ in edge_path:
-        nodes.append(v)
-    return nodes
+def _coords_close(a: List[float], b: List[float], tolerance: float = 1e-6) -> bool:
+    return abs(a[0] - b[0]) < tolerance and abs(a[1] - b[1]) < tolerance
+
+
+def _with_click_endpoints(
+    route_coords: List[List[float]],
+    start_click: List[float],
+    end_click: List[float],
+) -> List[List[float]]:
+    if not route_coords:
+        return [start_click] if _coords_close(start_click, end_click) else [start_click, end_click]
+
+    connected = list(route_coords)
+    if not _coords_close(connected[0], start_click):
+        connected.insert(0, start_click)
+    if not _coords_close(connected[-1], end_click):
+        connected.append(end_click)
+    return connected
+
+
+def _connector_segments(
+    core_route_coords: List[List[float]],
+    start_click: List[float],
+    end_click: List[float],
+) -> Dict[str, Optional[List[List[float]]]]:
+    if not core_route_coords:
+        segment = [start_click, end_click] if not _coords_close(start_click, end_click) else None
+        return {"start": segment, "end": None}
+
+    start_segment = None
+    end_segment = None
+    if not _coords_close(core_route_coords[0], start_click):
+        start_segment = [start_click, core_route_coords[0]]
+    if not _coords_close(core_route_coords[-1], end_click):
+        end_segment = [core_route_coords[-1], end_click]
+    return {"start": start_segment, "end": end_segment}
+
+
+def _parse_float_input(data: Dict[str, object], key: str) -> float:
+    if key not in data:
+        raise ValueError(f"Missing required field: {key}")
+    value = _as_float(data.get(key), float("nan"))
+    if not math.isfinite(value):
+        raise ValueError(f"Invalid numeric value for {key}")
+    return value
+
+
+def _validate_coordinates(start_lat: float, start_lon: float, end_lat: float, end_lon: float) -> None:
+    if not (-90.0 <= start_lat <= 90.0 and -90.0 <= end_lat <= 90.0):
+        raise ValueError("Latitude must be between -90 and 90.")
+    if not (-180.0 <= start_lon <= 180.0 and -180.0 <= end_lon <= 180.0):
+        raise ValueError("Longitude must be between -180 and 180.")
+
+
+def _extract_mode_params(data: Dict[str, object]) -> Tuple[str, str]:
+    route_mode_name = str(data.get("route_mode", "calm")).strip().lower()
+    if route_mode_name not in VALID_ROUTE_MODES:
+        raise ValueError(f"Unsupported route_mode: {route_mode_name}")
+
+    dog_sub_mode = str(data.get("dog_sub_mode", "relax")).strip().lower()
+    if dog_sub_mode not in VALID_DOG_SUB_MODES:
+        raise ValueError(f"Unsupported dog_sub_mode: {dog_sub_mode}")
+
+    return route_mode_name, dog_sub_mode
+
+
+def _extract_preference_bias(data: Dict[str, object]) -> int:
+    raw = data.get("preference_bias", 50)
+    value = int(_as_float(raw, 50.0))
+    if value < 0 or value > 100:
+        raise ValueError("preference_bias must be between 0 and 100.")
+    return value
 
 
 @app.route("/")
@@ -324,91 +368,169 @@ def home():
     return render_template("index.html")
 
 
+@app.route("/health")
+def health():
+    return jsonify(
+        {
+            "status": "ok",
+            "graph_path": GRAPH_PATH,
+            "graph_nodes": len(G.nodes),
+            "graph_edges": len(G.edges),
+        }
+    )
+
+
+@app.route("/api/safety_zones")
+def safety_zones():
+    return jsonify(get_safety_zones_geojson())
+
+
 @app.route("/smart_route", methods=["POST"])
 def smart_route():
-    data = request.get_json(silent=True) or {}
-    required = ("start_lat", "start_lon", "end_lat", "end_lon")
-    missing = [key for key in required if key not in data]
-    if missing:
-        return jsonify({"error": f"Missing required fields: {', '.join(missing)}"}), 400
+    started_at = time.perf_counter()
+    request_id = uuid.uuid4().hex[:8]
 
-    start_lat = _as_float(data["start_lat"])
-    start_lon = _as_float(data["start_lon"])
-    end_lat = _as_float(data["end_lat"])
-    end_lon = _as_float(data["end_lon"])
-    calm_mode_enabled = bool(data.get("calm_mode", False))
+    data = request.get_json(silent=True)
+    if data is None:
+        return _json_error(
+            "Expected JSON body.",
+            400,
+            code="invalid_json",
+            request_id=request_id,
+        )
+
+    try:
+        start_lat = _parse_float_input(data, "start_lat")
+        start_lon = _parse_float_input(data, "start_lon")
+        end_lat = _parse_float_input(data, "end_lat")
+        end_lon = _parse_float_input(data, "end_lon")
+        _validate_coordinates(start_lat, start_lon, end_lat, end_lon)
+        route_mode_name, dog_sub_mode = _extract_mode_params(data)
+        preference_bias = _extract_preference_bias(data)
+    except ValueError as exc:
+        return _json_error(str(exc), 400, code="validation_error", request_id=request_id)
 
     logger.info(
-        "Routing request calm_mode=%s start=(%.6f, %.6f) end=(%.6f, %.6f)",
-        calm_mode_enabled,
+        "request=%s mode=%s start=(%.6f, %.6f) end=(%.6f, %.6f)",
+        request_id,
+        route_mode_name,
         start_lat,
         start_lon,
         end_lat,
         end_lon,
     )
 
-    origin = ox.distance.nearest_nodes(G, start_lon, start_lat)
-    destination = ox.distance.nearest_nodes(G, end_lon, end_lat)
-    logger.info("Nearest graph nodes origin=%s destination=%s", origin, destination)
+    try:
+        origin = ox.distance.nearest_nodes(G, start_lon, start_lat)
+        destination = ox.distance.nearest_nodes(G, end_lon, end_lat)
+    except Exception:
+        logger.exception("request=%s nearest_nodes failure", request_id)
+        return _json_error(
+            "Unable to find nearest routable nodes for the selected points.",
+            400,
+            code="nearest_node_failure",
+            request_id=request_id,
+        )
+
+    weather = get_current_weather(start_lat, start_lon)
 
     try:
         shortest_nodes = nx.shortest_path(G, origin, destination, weight="length")
         shortest_edges = _node_path_to_edge_path(shortest_nodes, "length")
-
-        calm_edges, calm_cost = _calm_edge_path(origin, destination)
-        calm_nodes = _edge_path_to_nodes(origin, calm_edges)
-
-        shortest_coords = _edge_path_to_leaflet_coords(shortest_edges, fallback_node=origin)
-        calm_coords = _edge_path_to_leaflet_coords(calm_edges, fallback_node=origin)
-
+        fastest_route_core = _edge_path_to_leaflet_coords(shortest_edges, fallback_node=origin)
+        click_start = [start_lat, start_lon]
+        click_end = [end_lat, end_lon]
+        fastest_route = _with_click_endpoints(fastest_route_core, click_start, click_end)
         shortest_dist = _path_length_meters(shortest_edges)
-        calm_dist = _path_length_meters(calm_edges)
+        fastest_connectors = _connector_segments(fastest_route_core, click_start, click_end)
 
-        logger.info("Shortest node path (%s nodes): %s", len(shortest_nodes), shortest_nodes)
-        logger.info("Calm node path (%s nodes): %s", len(calm_nodes), calm_nodes)
-        logger.info("Shortest edges (%s): %s", len(shortest_edges), shortest_edges)
-        logger.info("Calm edges (%s): %s", len(calm_edges), calm_edges)
-        logger.info("Shortest route coords: %s points", len(shortest_coords))
-        logger.info("Calm route coords: %s points", len(calm_coords))
-        if shortest_coords:
-            logger.info(
-                "Shortest coords start=%s end=%s",
-                shortest_coords[0],
-                shortest_coords[-1],
-            )
-            logger.debug("Shortest route coords full: %s", shortest_coords)
-        if calm_coords:
-            logger.info(
-                "Calm coords start=%s end=%s",
-                calm_coords[0],
-                calm_coords[-1],
-            )
-            logger.debug("Calm route coords full: %s", calm_coords)
+        smart_route_coords: List[List[float]] = []
+        smart_route_core: List[List[float]] = []
+        smart_dist = 0.0
+        smart_cost = 0.0
+        smart_connectors = {"start": None, "end": None}
+
+        if route_mode_name != "fastest":
+            mode_instance = get_mode_instance(route_mode_name, weather, dog_sub_mode, preference_bias)
+            smart_edges, smart_cost = _smart_edge_path(origin, destination, mode_instance)
+            smart_route_core = _edge_path_to_leaflet_coords(smart_edges, fallback_node=origin)
+            smart_route_coords = _with_click_endpoints(smart_route_core, click_start, click_end)
+            smart_dist = _path_length_meters(smart_edges)
+            smart_connectors = _connector_segments(smart_route_core, click_start, click_end)
+
+        response_payload: Dict[str, object] = {
+            "request_id": request_id,
+            "mode_requested": route_mode_name,
+            "mode_used": route_mode_name,
+            "dog_sub_mode": dog_sub_mode,
+            "preference_bias": preference_bias,
+            "weather": weather,
+            "fastest_route": fastest_route,
+            "smart_route": smart_route_coords,
+            "fastest_route_core": fastest_route_core,
+            "smart_route_core": smart_route_core,
+            "connectors": {
+                "fastest": fastest_connectors,
+                "smart": smart_connectors,
+            },
+            "snapped_nodes": {
+                "origin": [
+                    _as_float(G.nodes[origin].get("y")),
+                    _as_float(G.nodes[origin].get("x")),
+                ],
+                "destination": [
+                    _as_float(G.nodes[destination].get("y")),
+                    _as_float(G.nodes[destination].get("x")),
+                ],
+            },
+            "shortest_stats": _stats(shortest_dist),
+            "smart_stats": _stats(smart_dist) if smart_route_coords else None,
+            "comparison": _comparison(shortest_dist, smart_dist) if smart_route_coords else None,
+            # Additional structured contract for future clients:
+            "routes": {
+                "fastest": fastest_route,
+                "smart": smart_route_coords,
+            },
+            "stats": {
+                "fastest": _stats(shortest_dist),
+                "smart": _stats(smart_dist) if smart_route_coords else None,
+                "comparison": _comparison(shortest_dist, smart_dist) if smart_route_coords else None,
+            },
+        }
+
+        duration_ms = (time.perf_counter() - started_at) * 1000.0
         logger.info(
-            "Route lengths shortest=%.0fm calm=%.0fm calm_cost=%.1f",
-            shortest_dist,
-            calm_dist,
-            calm_cost,
+            "request=%s success mode=%s fastest_points=%s smart_points=%s smart_cost=%.2f duration_ms=%.1f",
+            request_id,
+            route_mode_name,
+            len(fastest_route),
+            len(smart_route_coords),
+            smart_cost,
+            duration_ms,
         )
-
-        return jsonify(
-            {
-                "fastest_route": shortest_coords,
-                "calm_route": calm_coords,
-                "shortest_stats": _stats(shortest_dist),
-                "calm_stats": _stats(calm_dist),
-                "comparison": _comparison(shortest_dist, calm_dist),
-            }
-        )
+        logger.debug("request=%s fastest_route=%s", request_id, fastest_route)
+        logger.debug("request=%s smart_route=%s", request_id, smart_route_coords)
+        return jsonify(response_payload)
     except nx.NetworkXNoPath:
-        logger.warning("No path found between %s and %s", origin, destination)
-        return jsonify({"error": "No path found between selected points."}), 404
+        logger.warning("request=%s no_path origin=%s destination=%s", request_id, origin, destination)
+        return _json_error(
+            "No path found between selected points.",
+            404,
+            code="no_path",
+            request_id=request_id,
+        )
     except Exception:
-        logger.exception("Unexpected routing failure")
-        return jsonify({"error": "Failed to calculate route."}), 500
+        logger.exception("request=%s unexpected_routing_failure", request_id)
+        return _json_error(
+            "Failed to calculate route.",
+            500,
+            code="routing_failure",
+            request_id=request_id,
+        )
 
-
-_initialize_edge_metrics()
 
 if __name__ == "__main__":
-    app.run(debug=True)
+    debug = os.getenv("FLASK_DEBUG", "false").lower() == "true"
+    host = os.getenv("FLASK_HOST", "127.0.0.1")
+    port = int(os.getenv("FLASK_PORT", "5000"))
+    app.run(debug=debug, host=host, port=port)

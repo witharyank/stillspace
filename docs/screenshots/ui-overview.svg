@@ -1,0 +1,23 @@
+<svg width="1280" height="720" viewBox="0 0 1280 720" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <rect width="1280" height="720" fill="#0B1220"/>
+  <rect x="24" y="24" width="380" height="672" rx="20" fill="#111C30" stroke="#2A3A56"/>
+  <rect x="424" y="24" width="832" height="672" rx="20" fill="#0A1728" stroke="#2A3A56"/>
+  <rect x="48" y="48" width="140" height="34" rx="10" fill="#1D3557"/>
+  <rect x="48" y="108" width="332" height="92" rx="12" fill="#16253D"/>
+  <rect x="48" y="214" width="332" height="92" rx="12" fill="#16253D"/>
+  <rect x="48" y="322" width="160" height="78" rx="12" fill="#17324D"/>
+  <rect x="220" y="322" width="160" height="78" rx="12" fill="#17324D"/>
+  <rect x="48" y="414" width="160" height="78" rx="12" fill="#17324D"/>
+  <rect x="220" y="414" width="160" height="78" rx="12" fill="#17324D"/>
+  <rect x="48" y="508" width="332" height="64" rx="12" fill="#16253D"/>
+  <rect x="48" y="586" width="162" height="56" rx="12" fill="#24558B"/>
+  <rect x="218" y="586" width="162" height="56" rx="12" fill="#1A2F4B"/>
+  <circle cx="688" cy="342" r="180" fill="#143A60"/>
+  <path d="M560 360C620 280 690 270 760 330C820 380 890 390 950 330" stroke="#2ED47A" stroke-width="14" stroke-linecap="round"/>
+  <path d="M560 390C620 310 690 300 760 360C820 410 890 420 950 360" stroke="#3F82F8" stroke-width="8" stroke-linecap="round" stroke-dasharray="14 12"/>
+  <rect x="980" y="60" width="244" height="44" rx="22" fill="#111C30" stroke="#2A3A56"/>
+  <rect x="980" y="112" width="244" height="44" rx="22" fill="#111C30" stroke="#2A3A56"/>
+  <rect x="952" y="566" width="272" height="104" rx="18" fill="#111C30" stroke="#2A3A56"/>
+  <text x="52" y="74" fill="#E4EDFA" font-size="18" font-family="Arial, sans-serif" font-weight="700">StillSpace</text>
+  <text x="968" y="628" fill="#E4EDFA" font-size="16" font-family="Arial, sans-serif" font-weight="700">Floating Route Summary</text>
+</svg>

@@ -1,161 +1,174 @@
 # StillSpace
 
-StillSpace is a smart pedestrian route-planning web application that helps users choose between the **fastest route** and a **calmer walking route**.  
-Unlike traditional navigation systems that optimize only for distance or time, StillSpace also considers road stress, sharp turns, and busy intersections to generate a more peaceful walking experience.
+StillSpace is a production-ready Flask + OSMnx routing app that compares the fastest route against intelligent alternatives:
 
----
+- `calm`
+- `safe`
+- `accessibility`
+- `dog`
+- `weather`
 
-## Overview
+It renders continuous road geometry in Leaflet and provides route comparison metrics (distance, ETA, and deltas).
 
-Urban walking routes are not always comfortable. The shortest path may pass through noisy roads, high-traffic intersections, or stressful environments.
+## UI Preview
 
-StillSpace solves this problem by offering two route options:
+![StillSpace UI overview](docs/screenshots/ui-overview.svg)
 
-- **Fastest Route** – shortest walking distance  
-- **Calm Route** – safer and less stressful path using custom scoring logic  
+## What Is Included
 
-This makes StillSpace useful for students, daily commuters, tourists, senior citizens, and anyone who prefers a more comfortable walking experience.
+- Multi-mode routing engine over an OSMnx `MultiDiGraph`
+- Continuous route reconstruction using edge geometries
+- Safety-zone overlay endpoint
+- Weather-aware mode weighting with cache + mock/live weather switch
+- Premium responsive Leaflet frontend (desktop + mobile sheet)
+- API smoke test script for quick regression checks
+- Deployment-ready configuration for Render/Railway/Gunicorn
 
----
-
-## Features
-
-- Smart route comparison system  
-- Fastest route using shortest-path algorithm  
-- Calm route using custom weighted graph logic  
-- Real-world road network data using OpenStreetMap  
-- Distance and estimated walking time  
-- Interactive map visualization  
-- Web-based interface with Flask  
-
----
-
-## Tech Stack
+## Architecture
 
 ### Backend
-- Python  
-- Flask  
-- NetworkX  
-- OSMnx  
-- Shapely  
+
+- `app.py`: Flask app, routing API, graph loading, edge-path reconstruction
+- `route_modes.py`: mode strategies (`calm`, `safe`, `accessibility`, `dog`, `weather`)
+- `routing_utils.py`: shared highway normalization and parsing helpers
+- `weather_service.py`: cached weather provider (mock/live OpenWeather)
+- `safety_zones.py`: mock danger polygons + geometry checks
 
 ### Frontend
-- HTML  
-- CSS  
-- JavaScript  
-- Leaflet.js  
 
-### Data Source
-- OpenStreetMap  
+- `templates/index.html`: semantic app shell
+- `static/css/app.css`: premium responsive styling
+- `static/js/app.js`: map state, routing calls, animations, UI state machine
 
----
+## API
 
-## How It Works
+### `POST /smart_route`
 
-StillSpace loads a city road network graph and compares two paths between source and destination.
+Request:
 
-### 1. Fastest Route
+```json
+{
+  "start_lat": 30.7333,
+  "start_lon": 76.7794,
+  "end_lat": 30.7392,
+  "end_lon": 76.7739,
+  "route_mode": "calm",
+  "dog_sub_mode": "relax"
+}
+```
 
-Uses Dijkstra’s shortest path algorithm with road length as weight.
+Key response fields:
 
-**Formula:**  
-`Total Cost = Sum of Road Lengths`
+- `fastest_route`: `[[lat, lng], ...]`
+- `smart_route`: `[[lat, lng], ...]` (empty for `fastest` mode)
+- `shortest_stats`: `{ dist_km, time_min }`
+- `smart_stats`: `{ dist_km, time_min } | null`
+- `comparison`: `{ extra_dist_km, extra_time_min, dist_diff_pct } | null`
+- `weather`: current weather flags used by weather-aware scoring
 
-### 2. Calm Route
+### `GET /api/safety_zones`
 
-Uses a custom modified Dijkstra algorithm.
+Returns GeoJSON polygons for danger-zone visualization.
 
-**Formula:**  
-`Calm Score = (Length × Road Stress) + Turn Penalty + Intersection Penalty`
+### `GET /health`
 
-The route with the lowest calm score is selected.
+Basic health and graph metadata for deployment probes.
 
----
+## Local Development
 
-## Road Stress Values
-
-| Road Type | Stress Score |
-|----------|--------------|
-| Footway | 0.85 |
-| Residential | 1.0 |
-| Tertiary Road | 1.4 |
-| Secondary Road | 2.0 |
-| Primary Road | 2.8 |
-| Motorway | 4.0 |
-
-Lower score means more comfortable.
-
----
-
-## Turn Penalty Logic
-
-| Turn Angle | Penalty |
-|-----------|---------|
-| < 25° | 0 |
-| < 55° | 8 |
-| < 95° | 18 |
-| < 140° | 36 |
-| > 140° | 60 |
-
-Sharp turns increase discomfort.
-
----
-
-## Installation
-
-### Clone Repository
+1. Create and activate a virtual environment
+2. Install dependencies:
 
 ```bash
-git clone https://github.com/your-username/stillspace.git
-cd stillspace
+pip install -r requirements.txt
 ```
-# Create Virtual Environment
-python -m venv .venv
-Activate Environment
-Windows
-.venv\Scripts\activate
-Linux / Mac
-source .venv/bin/activate
-Install Dependencies
-pip install flask networkx osmnx shapely
-Run Project
+
+3. Copy environment template:
+
+```bash
+cp .env.example .env
+```
+
+4. Run app:
+
+```bash
 python app.py
+```
 
-Open browser:
+Open: `http://127.0.0.1:5000`
 
-http://127.0.0.1:5000
-Project Structure
-stillspace/
-│── app.py
-│── city.graphml
-│── templates/
-│   └── index.html
-│── download_graph.py
-│── route_test.py
-Use Cases
-Peaceful city walking navigation
-Safer route suggestions
-Tourist walking assistant
-Accessibility-friendly routing
-Mental wellness focused navigation
-Future Enhancements
-Live traffic integration
-Noise pollution data
-Night safety mode
-Wheelchair-friendly routes
-Mobile application
-AI route preference learning
-Why StillSpace?
+## Environment Variables
 
-Most map apps optimize speed.
-StillSpace optimizes peace of mind.
+| Variable | Purpose | Default |
+|---|---|---|
+| `FLASK_DEBUG` | Flask debug mode | `false` |
+| `FLASK_HOST` | Bind host | `0.0.0.0` |
+| `FLASK_PORT` | Bind port | `5000` |
+| `LOG_LEVEL` | Logging level | `INFO` |
+| `GRAPH_PATH` | GraphML path | `city.graphml` |
+| `USE_MOCK_WEATHER` | Use mock weather instead of API | `true` |
+| `OPENWEATHER_API_KEY` | OpenWeather API key | empty |
+| `WEATHER_CACHE_TTL_SEC` | Weather cache TTL | `900` |
+| `WEATHER_REQUEST_TIMEOUT_SEC` | Weather API timeout | `4` |
 
-Author
+## QA Smoke Checks
 
-Kumar Aryan
-Computer Science Engineering Student
-Cloud & AI/ML Enthusiast
+Run:
 
-License
+```bash
+python qa_smoke.py
+```
 
-This project is open-source and available under the MIT License.
+This checks:
+
+- `/health`
+- `/api/safety_zones`
+- `/smart_route` for all modes
+
+## Production Run
+
+Use Gunicorn:
+
+```bash
+gunicorn wsgi:app --bind 0.0.0.0:5000 --workers 2 --threads 4
+```
+
+## Deployment Guides
+
+### Render
+
+1. Create Web Service from repo
+2. Build command:
+
+```bash
+pip install -r requirements.txt
+```
+
+3. Start command:
+
+```bash
+gunicorn wsgi:app --bind 0.0.0.0:$PORT --workers 2 --threads 4
+```
+
+4. Set env vars from `.env.example`
+
+### Railway
+
+1. New project from repo
+2. Set start command:
+
+```bash
+gunicorn wsgi:app --bind 0.0.0.0:$PORT --workers 2 --threads 4
+```
+
+3. Configure environment variables in Railway dashboard
+
+### Vercel (Backend Alternative)
+
+If you need a serverless backend variant, expose Flask via a Vercel Python function (for light traffic). For heavy routing traffic, prefer Render/Railway because graph routing is CPU-heavy and better suited to a persistent process.
+
+## Notes
+
+- `city.graphml` is loaded once at startup.
+- Route continuity depends on real edge geometry reconstruction, not straight node-to-node segments.
+- Safety/weather logic is deterministic and testable (mock weather can be enabled in `.env`).
