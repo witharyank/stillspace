@@ -149,6 +149,119 @@ body {
     border-color: var(--focus);
 }
 
+.panel-tabs {
+    display: flex;
+    gap: 8px;
+    margin-bottom: 2px;
+}
+
+.tab-btn {
+    flex: 1;
+    background: color-mix(in srgb, var(--panel-elevated) 60%, transparent);
+    border: 1px solid var(--panel-border);
+    color: var(--text-soft);
+    padding: 10px;
+    border-radius: var(--radius-md);
+    font-size: 0.82rem;
+    font-weight: 700;
+    cursor: pointer;
+    transition: all 180ms ease;
+}
+
+.tab-btn:hover {
+    color: var(--text-main);
+    border-color: color-mix(in srgb, var(--focus) 40%, var(--panel-border));
+}
+
+.tab-btn.active {
+    background: var(--panel-elevated);
+    color: var(--text-main);
+    border-color: color-mix(in srgb, var(--focus) 75%, var(--panel-border));
+}
+
+.tab-panel.flex-col {
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+}
+
+/* History Styles */
+.history-wrapper {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    min-height: 200px;
+}
+.history-head {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+.history-list {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    margin-top: 8px;
+}
+.history-empty {
+    text-align: center;
+    color: var(--text-muted);
+    font-size: 0.85rem;
+    padding: 20px 0;
+}
+.history-item {
+    border: 1px solid var(--panel-border);
+    background: var(--panel-elevated);
+    border-radius: var(--radius-md);
+    padding: 12px;
+    cursor: pointer;
+    position: relative;
+    transition: all 180ms ease;
+    text-align: left;
+}
+.history-item:hover {
+    transform: translateY(-1px);
+    border-color: color-mix(in srgb, var(--focus) 50%, var(--panel-border));
+}
+.history-item .hist-mode {
+    font-size: 0.76rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    color: var(--mode-accent, var(--text-main));
+    margin-bottom: 6px;
+    display: inline-block;
+}
+.history-item .hist-coords {
+    font-size: 0.8rem;
+    color: var(--text-soft);
+    display: block;
+    margin-bottom: 4px;
+}
+.history-item .hist-time {
+    font-size: 0.7rem;
+    color: var(--text-muted);
+}
+.history-delete {
+    position: absolute;
+    top: 10px;
+    right: 10px;
+    background: transparent;
+    border: none;
+    color: var(--text-muted);
+    cursor: pointer;
+    padding: 4px;
+    border-radius: 6px;
+    opacity: 0;
+    transition: opacity 150ms ease, background 150ms ease, color 150ms ease;
+}
+.history-item:hover .history-delete {
+    opacity: 1;
+}
+.history-delete:hover {
+    background: color-mix(in srgb, #ef4444 15%, transparent);
+    color: #ef4444;
+}
+
 .section {
     background: color-mix(in srgb, var(--panel-surface) 88%, transparent);
     border: 1px solid var(--panel-border);

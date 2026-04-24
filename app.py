@@ -18,8 +18,11 @@ from route_modes import get_mode_instance
 from routing_utils import _as_float
 from safety_zones import get_safety_zones_geojson
 from weather_service import get_current_weather
+import database
 
 load_dotenv()
+
+database.init_db()
 
 app = Flask(__name__)
 
@@ -32,12 +35,22 @@ logger = logging.getLogger("stillspace")
 
 GRAPH_PATH = os.getenv("GRAPH_PATH", "city.graphml")
 AVERAGE_WALK_MPS = 1.4
+MAX_SNAP_DISTANCE_M = float(os.getenv("MAX_SNAP_DISTANCE_M", "250"))
 VALID_ROUTE_MODES = {"fastest", "calm", "safe", "accessibility", "dog", "weather"}
 VALID_DOG_SUB_MODES = {"quick", "relax", "long", "quiet", "park_priority"}
 
 logger.info("Loading graph from %s ...", GRAPH_PATH)
 G = ox.load_graphml(GRAPH_PATH)
 logger.info("Graph loaded: %s nodes, %s edges", len(G.nodes), len(G.edges))
+
+_all_lats = [_as_float(data.get("y")) for _, data in G.nodes(data=True)]
+_all_lons = [_as_float(data.get("x")) for _, data in G.nodes(data=True)]
+GRAPH_BBOX = {
+    "min_lat": min(_all_lats),
+    "max_lat": max(_all_lats),
+    "min_lon": min(_all_lons),
+    "max_lon": max(_all_lons),
+}
 
 EdgeRef = Tuple[int, int, int]
 _EDGE_POINTS_CACHE: Dict[EdgeRef, List[Tuple[float, float]]] = {}
@@ -293,20 +306,14 @@ def _coords_close(a: List[float], b: List[float], tolerance: float = 1e-6) -> bo
     return abs(a[0] - b[0]) < tolerance and abs(a[1] - b[1]) < tolerance
 
 
-def _with_click_endpoints(
-    route_coords: List[List[float]],
-    start_click: List[float],
-    end_click: List[float],
-) -> List[List[float]]:
-    if not route_coords:
-        return [start_click] if _coords_close(start_click, end_click) else [start_click, end_click]
-
-    connected = list(route_coords)
-    if not _coords_close(connected[0], start_click):
-        connected.insert(0, start_click)
-    if not _coords_close(connected[-1], end_click):
-        connected.append(end_click)
-    return connected
+def _haversine_m(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
+    r = 6371000.0
+    phi1 = math.radians(lat1)
+    phi2 = math.radians(lat2)
+    dphi = math.radians(lat2 - lat1)
+    dlambda = math.radians(lon2 - lon1)
+    a = math.sin(dphi / 2) ** 2 + math.cos(phi1) * math.cos(phi2) * math.sin(dlambda / 2) ** 2
+    return 2 * r * math.atan2(math.sqrt(a), math.sqrt(1 - a))
 
 
 def _connector_segments(
@@ -376,6 +383,8 @@ def health():
             "graph_path": GRAPH_PATH,
             "graph_nodes": len(G.nodes),
             "graph_edges": len(G.edges),
+            "graph_bbox": GRAPH_BBOX,
+            "max_snap_distance_m": MAX_SNAP_DISTANCE_M,
         }
     )
 
@@ -383,6 +392,18 @@ def health():
 @app.route("/api/safety_zones")
 def safety_zones():
     return jsonify(get_safety_zones_geojson())
+
+@app.route("/api/history")
+def search_history():
+    recent = database.get_recent_searches()
+    return jsonify({"history": recent})
+
+@app.route("/api/history/<int:search_id>", methods=["DELETE"])
+def delete_search_history(search_id):
+    success = database.delete_search(search_id)
+    if success:
+        return jsonify({"success": True, "message": "Search history deleted."})
+    return jsonify({"success": False, "error": "History not found."}), 404
 
 
 @app.route("/smart_route", methods=["POST"])
@@ -433,6 +454,26 @@ def smart_route():
         )
 
     weather = get_current_weather(start_lat, start_lon)
+    origin_lat = _as_float(G.nodes[origin].get("y"))
+    origin_lon = _as_float(G.nodes[origin].get("x"))
+    destination_lat = _as_float(G.nodes[destination].get("y"))
+    destination_lon = _as_float(G.nodes[destination].get("x"))
+
+    start_snap_distance_m = _haversine_m(start_lat, start_lon, origin_lat, origin_lon)
+    end_snap_distance_m = _haversine_m(end_lat, end_lon, destination_lat, destination_lon)
+    if start_snap_distance_m > MAX_SNAP_DISTANCE_M or end_snap_distance_m > MAX_SNAP_DISTANCE_M:
+        return _json_error(
+            "Selected point is outside supported map coverage. Choose points closer to mapped streets.",
+            400,
+            code="outside_coverage",
+            request_id=request_id,
+            details={
+                "start_snap_distance_m": round(start_snap_distance_m, 1),
+                "end_snap_distance_m": round(end_snap_distance_m, 1),
+                "max_snap_distance_m": MAX_SNAP_DISTANCE_M,
+                "graph_bbox": GRAPH_BBOX,
+            },
+        )
 
     try:
         shortest_nodes = nx.shortest_path(G, origin, destination, weight="length")
@@ -440,7 +481,7 @@ def smart_route():
         fastest_route_core = _edge_path_to_leaflet_coords(shortest_edges, fallback_node=origin)
         click_start = [start_lat, start_lon]
         click_end = [end_lat, end_lon]
-        fastest_route = _with_click_endpoints(fastest_route_core, click_start, click_end)
+        fastest_route = fastest_route_core
         shortest_dist = _path_length_meters(shortest_edges)
         fastest_connectors = _connector_segments(fastest_route_core, click_start, click_end)
 
@@ -454,7 +495,7 @@ def smart_route():
             mode_instance = get_mode_instance(route_mode_name, weather, dog_sub_mode, preference_bias)
             smart_edges, smart_cost = _smart_edge_path(origin, destination, mode_instance)
             smart_route_core = _edge_path_to_leaflet_coords(smart_edges, fallback_node=origin)
-            smart_route_coords = _with_click_endpoints(smart_route_core, click_start, click_end)
+            smart_route_coords = smart_route_core
             smart_dist = _path_length_meters(smart_edges)
             smart_connectors = _connector_segments(smart_route_core, click_start, click_end)
 
@@ -474,14 +515,12 @@ def smart_route():
                 "smart": smart_connectors,
             },
             "snapped_nodes": {
-                "origin": [
-                    _as_float(G.nodes[origin].get("y")),
-                    _as_float(G.nodes[origin].get("x")),
-                ],
-                "destination": [
-                    _as_float(G.nodes[destination].get("y")),
-                    _as_float(G.nodes[destination].get("x")),
-                ],
+                "origin": [origin_lat, origin_lon],
+                "destination": [destination_lat, destination_lon],
+            },
+            "snap_distances_m": {
+                "start": round(start_snap_distance_m, 1),
+                "end": round(end_snap_distance_m, 1),
             },
             "shortest_stats": _stats(shortest_dist),
             "smart_stats": _stats(smart_dist) if smart_route_coords else None,
@@ -510,6 +549,10 @@ def smart_route():
         )
         logger.debug("request=%s fastest_route=%s", request_id, fastest_route)
         logger.debug("request=%s smart_route=%s", request_id, smart_route_coords)
+
+        # Store in search history
+        database.insert_search(start_lat, start_lon, end_lat, end_lon, route_mode_name)
+
         return jsonify(response_payload)
     except nx.NetworkXNoPath:
         logger.warning("request=%s no_path origin=%s destination=%s", request_id, origin, destination)

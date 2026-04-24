@@ -28,7 +28,10 @@
         fastestLayer: null,
         smartLayer: null,
         smartGlowLayer: null,
+        connectorLayers: [],
         safetyLayer: null,
+        graphBounds: null,
+        maxSnapDistanceM: null,
         loading: false,
         animationFrames: [],
         activeRequestController: null,
@@ -72,6 +75,14 @@
         summaryDist: document.getElementById("summaryDist"),
         summaryTime: document.getElementById("summaryTime"),
         summaryScore: document.getElementById("summaryScore"),
+        tabRouteBtn: document.getElementById("tabRouteBtn"),
+        tabHistoryBtn: document.getElementById("tabHistoryBtn"),
+        routePanel: document.getElementById("routePanel"),
+        historyPanel: document.getElementById("historyPanel"),
+        refreshHistoryBtn: document.getElementById("refreshHistoryBtn"),
+        historyList: document.getElementById("historyList"),
+        historyEmpty: document.getElementById("historyEmpty"),
+        historyLoadingStrip: document.getElementById("historyLoadingStrip"),
     };
 
     function init() {
@@ -79,6 +90,7 @@
         initializeMap();
         bindEvents();
         setMode("calm");
+        bootstrapCoverage();
         setStatus("Step 1: Pick start. Step 2: Pick destination. Step 3: Generate route.");
     }
 
@@ -116,6 +128,28 @@
         state.map.on("click", handleMapClick);
     }
 
+    async function bootstrapCoverage() {
+        try {
+            const response = await fetch("/health");
+            if (!response.ok) {
+                return;
+            }
+            const data = await response.json();
+            const bbox = data.graph_bbox;
+            if (bbox && Number.isFinite(bbox.min_lat) && Number.isFinite(bbox.min_lon) && Number.isFinite(bbox.max_lat) && Number.isFinite(bbox.max_lon)) {
+                state.graphBounds = L.latLngBounds(
+                    [bbox.min_lat, bbox.min_lon],
+                    [bbox.max_lat, bbox.max_lon]
+                );
+            }
+            if (typeof data.max_snap_distance_m === "number") {
+                state.maxSnapDistanceM = data.max_snap_distance_m;
+            }
+        } catch (_error) {
+            // Non-blocking: app can still work without coverage metadata.
+        }
+    }
+
     function bindEvents() {
         DOM.themeToggle.addEventListener("click", () => applyTheme(state.theme === "dark" ? "light" : "dark"));
         DOM.simpleModeTabs.addEventListener("click", handleSimpleModeClick);
@@ -136,7 +170,114 @@
             setStatus("Click on the map to place your destination.");
         });
         DOM.sheetToggle.addEventListener("click", toggleMobilePanel);
+        DOM.tabRouteBtn.addEventListener("click", () => switchTab("route"));
+        DOM.tabHistoryBtn.addEventListener("click", () => switchTab("history"));
+        DOM.refreshHistoryBtn.addEventListener("click", fetchHistory);
         window.addEventListener("resize", debounce(() => state.map.invalidateSize(), 180));
+    }
+
+    function switchTab(tab) {
+        const isRoute = tab === "route";
+        DOM.tabRouteBtn.classList.toggle("active", isRoute);
+        DOM.tabRouteBtn.setAttribute("aria-selected", String(isRoute));
+        DOM.tabHistoryBtn.classList.toggle("active", !isRoute);
+        DOM.tabHistoryBtn.setAttribute("aria-selected", String(!isRoute));
+
+        DOM.routePanel.classList.toggle("hidden", !isRoute);
+        DOM.historyPanel.classList.toggle("hidden", isRoute);
+
+        if (!isRoute) {
+            fetchHistory();
+        }
+    }
+
+    async function fetchHistory() {
+        DOM.historyEmpty.classList.add("hidden");
+        DOM.historyLoadingStrip.classList.remove("hidden");
+        Array.from(DOM.historyList.children).forEach(el => {
+            if (el !== DOM.historyEmpty && el !== DOM.historyLoadingStrip) {
+                el.remove();
+            }
+        });
+
+        try {
+            const resp = await fetch("/api/history");
+            const data = await resp.json();
+            renderHistory(data.history || []);
+        } catch (e) {
+            console.error("Failed to load history", e);
+            renderHistory([]);
+        }
+    }
+
+    function renderHistory(items) {
+        DOM.historyLoadingStrip.classList.add("hidden");
+        if (!items || items.length === 0) {
+            DOM.historyEmpty.classList.remove("hidden");
+            return;
+        }
+        DOM.historyEmpty.classList.add("hidden");
+
+        items.forEach(item => {
+            const card = document.createElement("div");
+            card.className = "history-item";
+            
+            const date = new Date(item.timestamp + "Z");
+            const timeStr = date.toLocaleString();
+            
+            const modeLabel = MODES[item.mode] ? MODES[item.mode].label : item.mode;
+            const modeColor = MODES[item.mode] ? MODES[item.mode].color : "inherit";
+
+            card.innerHTML = `
+                <span class="hist-mode" style="color: ${modeColor}">${modeLabel}</span>
+                <span class="hist-coords">S: ${item.start_lat.toFixed(4)}, ${item.start_lon.toFixed(4)}</span>
+                <span class="hist-coords">D: ${item.end_lat.toFixed(4)}, ${item.end_lon.toFixed(4)}</span>
+                <span class="hist-time">${timeStr}</span>
+                <button class="history-delete" title="Delete" aria-label="Delete">🗑️</button>
+            `;
+
+            card.addEventListener("click", () => loadHistoryRoute(item));
+            card.querySelector(".history-delete").addEventListener("click", (e) => {
+                e.stopPropagation();
+                deleteHistory(item.id, card);
+            });
+
+            DOM.historyList.appendChild(card);
+        });
+    }
+
+    async function deleteHistory(id, cardElement) {
+        try {
+            const resp = await fetch("/api/history/" + id, { method: "DELETE" });
+            if (resp.ok) {
+                cardElement.remove();
+                if (DOM.historyList.children.length <= 2) {
+                    DOM.historyEmpty.classList.remove("hidden");
+                }
+            }
+        } catch (e) {
+            console.error("Delete failed", e);
+        }
+    }
+
+    function loadHistoryRoute(item) {
+        if (!item.start_lat || !item.end_lat) return;
+
+        switchTab("route");
+        resetJourney();
+
+        const startLngLat = L.latLng(item.start_lat, item.start_lon);
+        const endLngLat = L.latLng(item.end_lat, item.end_lon);
+
+        setStartPoint(startLngLat);
+        setEndPoint(endLngLat);
+        if (MODES[item.mode]) {
+            setMode(item.mode);
+        }
+        
+        setTimeout(() => {
+            generateRoute();
+        }, 300);
     }
 
     function handleSimpleModeClick(event) {
@@ -262,31 +403,33 @@
             return;
         }
 
+        const normalizedLatLng = event.latlng.wrap();
+
         if (state.pendingPoint === "start") {
-            setStartPoint(event.latlng);
+            setStartPoint(normalizedLatLng);
             state.pendingPoint = null;
             setStatus("Start point updated.");
             return;
         }
         if (state.pendingPoint === "end") {
-            setEndPoint(event.latlng);
+            setEndPoint(normalizedLatLng);
             state.pendingPoint = null;
             setStatus("Destination updated.");
             return;
         }
 
         if (!state.startPoint) {
-            setStartPoint(event.latlng);
+            setStartPoint(normalizedLatLng);
             setStatus("Start selected. Now click destination.");
             return;
         }
         if (!state.endPoint) {
-            setEndPoint(event.latlng);
+            setEndPoint(normalizedLatLng);
             setStatus("Destination selected. Generate route.");
             return;
         }
 
-        setEndPoint(event.latlng);
+        setEndPoint(normalizedLatLng);
         setStatus("Destination moved to new location.");
     }
 
@@ -379,6 +522,12 @@
                 return;
             }
             if (!response.ok) {
+                if (payload.code === "outside_coverage" && payload.details) {
+                    const s = payload.details.start_snap_distance_m;
+                    const e = payload.details.end_snap_distance_m;
+                    const max = payload.details.max_snap_distance_m;
+                    throw new Error(`Point outside coverage (snap: start ${s}m, end ${e}m, max ${max}m).`);
+                }
                 throw new Error(payload.error || "Route calculation failed.");
             }
             renderRouteResult(payload);
@@ -395,35 +544,14 @@
         }
     }
 
-    function pointsClose(a, b, tolerance = 1e-6) {
-        return Math.abs(a[0] - b[0]) < tolerance && Math.abs(a[1] - b[1]) < tolerance;
-    }
-
-    function ensureRouteTouchesMarkers(routeCoords) {
-        if (!state.startPoint || !state.endPoint) {
-            return routeCoords;
-        }
-        const start = [state.startPoint.lat, state.startPoint.lng];
-        const end = [state.endPoint.lat, state.endPoint.lng];
-        const connected = Array.isArray(routeCoords) ? routeCoords.slice() : [];
-
-        if (!connected.length) {
-            return pointsClose(start, end) ? [start] : [start, end];
-        }
-        if (!pointsClose(connected[0], start)) {
-            connected.unshift(start);
-        }
-        if (!pointsClose(connected[connected.length - 1], end)) {
-            connected.push(end);
-        }
-        return connected;
-    }
-
     function renderRouteResult(payload) {
         const fastestRaw = payload.fastest_route || (payload.routes && payload.routes.fastest) || [];
         const smartRaw = payload.smart_route || (payload.routes && payload.routes.smart) || [];
-        const fastestRoute = ensureRouteTouchesMarkers(fastestRaw);
-        const smartRoute = ensureRouteTouchesMarkers(smartRaw);
+        const fastestRoute = fastestRaw;
+        const smartRoute = smartRaw;
+        const connectors = payload.connectors || {};
+        const fastestConnectors = connectors.fastest || {};
+        const smartConnectors = connectors.smart || {};
         const shortestStats = payload.shortest_stats || (payload.stats && payload.stats.fastest) || null;
         const smartStats = payload.smart_stats || (payload.stats && payload.stats.smart) || null;
         const comparison = payload.comparison || (payload.stats && payload.stats.comparison) || null;
@@ -446,6 +574,7 @@
                 lineJoin: "round",
             }).addTo(state.map);
             animatePolyline(state.fastestLayer, fastestRoute, 900);
+            drawConnectorSegments(fastestConnectors, MODES.fastest.color);
             fitRouteBounds([fastestRoute]);
         } else {
             state.fastestLayer = L.polyline([], {
@@ -474,6 +603,7 @@
             animatePolyline(state.fastestLayer, fastestRoute, 720);
             animatePolyline(state.smartGlowLayer, smartRoute, 900);
             animatePolyline(state.smartLayer, smartRoute, 980);
+            drawConnectorSegments(smartConnectors, modeColor);
             fitRouteBounds([fastestRoute, smartRoute]);
         }
 
@@ -525,6 +655,31 @@
             state.map.removeLayer(state.smartGlowLayer);
             state.smartGlowLayer = null;
         }
+        if (state.connectorLayers.length) {
+            state.connectorLayers.forEach((layer) => state.map.removeLayer(layer));
+            state.connectorLayers = [];
+        }
+    }
+
+    function drawConnectorSegments(connectorSet, color) {
+        const segments = [];
+        if (connectorSet && Array.isArray(connectorSet.start) && connectorSet.start.length >= 2) {
+            segments.push(connectorSet.start);
+        }
+        if (connectorSet && Array.isArray(connectorSet.end) && connectorSet.end.length >= 2) {
+            segments.push(connectorSet.end);
+        }
+        segments.forEach((segment) => {
+            const layer = L.polyline(segment, {
+                color,
+                weight: 3,
+                opacity: 0.65,
+                lineCap: "round",
+                lineJoin: "round",
+                dashArray: "5 7",
+            }).addTo(state.map);
+            state.connectorLayers.push(layer);
+        });
     }
 
     function fitRouteBounds(routes) {
