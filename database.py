@@ -124,6 +124,5 @@ def delete_search(search_id: int):
     except sqlite3.Error as e:
         # Log error if deletion fails
         logger.error("Failed to delete search record: %s", e)
-
         # Return False on failure
         return False
