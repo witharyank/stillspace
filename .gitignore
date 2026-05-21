@@ -1,15 +1,54 @@
-# Virtual environment
-.venv/
-
-# PyCharm
-.idea/
-
-# Cache files
-cache/
-
-# Python cache
+# Python bytecode/cache
 __pycache__/
-*.pyc
+*.py[cod]
+*$py.class
+
+# Virtual environments
+.venv/
+venv/
+env/
+ENV/
+
+# Local environment files
+.env
+.env.local
+.env.*.local
+
+# IDE/editor files
+.idea/
+.vscode/
+*.suo
+*.user
+*.swp
+*.swo
 
 # OS files
 .DS_Store
+Thumbs.db
+
+# Test and tooling caches
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+.coverage.*
+htmlcov/
+
+# Build/distribution
+build/
+dist/
+*.egg-info/
+
+# Runtime/local data
+cache/
+search_history.db
+*.sqlite
+*.sqlite3
+*.db
+
+# Logs
+*.log
+
+# Generated reports/artifacts
+report.md
+*_Report.docx

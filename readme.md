@@ -1,118 +1,66 @@
-# 🌌 StillSpace: Intelligent Urban Routing
+# StillSpace
 
-[![Python 3.9+](https://img.shields.io/badge/python-3.9+-blue.svg)](https://www.python.org/downloads/)
-[![Flask](https://img.shields.io/badge/Flask-2.x-lightgrey.svg)](https://flask.palletsprojects.com/)
-[![OSMnx](https://img.shields.io/badge/OSMnx-Routing-green.svg)](https://osmnx.readthedocs.io/)
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+StillSpace is a Flask + OSMnx web app for intelligent urban walking routes.
 
-**StillSpace** is an advanced, production-ready routing engine and web application that rethinks urban navigation. While traditional navigation apps optimize purely for speed, StillSpace allows users to find the *smartest* and *most comfortable* routes based on their unique needs, comparing the absolute fastest path against intelligent, context-aware alternatives.
+Instead of showing only the shortest path, it can compare:
+- Fastest
+- Calm
+- Safe
+- Accessibility
+- Dog Walk
+- Weather Smart
 
-Whether you need a quiet stroll, a wheelchair-accessible path, a safe journey home at night, or a pleasant route for your dog, StillSpace computes the optimal path using continuous road geometries and real-world environmental data.
+The app uses OpenStreetMap graph data (`city.graphml`), computes routes with NetworkX, and renders them in Leaflet.
 
----
+## Features
 
-## ✨ Key Features
+- Multi-mode route planning over a real street graph
+- Geometry-accurate route rendering (curves, not straight node jumps)
+- Marker-to-route connector segments for seamless visual start/end alignment
+- Coverage guardrails (rejects clicks too far from mapped streets)
+- Weather-aware weighting with mock/live weather support
+- Safety-zone overlay API
+- Search history persistence using SQLite
+- Responsive UI with simple and advanced route mode flows
 
-- 🧠 **Multi-Mode Routing Engine**: Powered by OSMnx and a custom Dijkstra-based graph search, optimizing for various comfort and safety factors over a localized `MultiDiGraph`.
-- 🚶 **Smart Routing Modes**:
-  - **Calm**: Minimizes stress by avoiding high-traffic highways and complex intersections.
-  - **Safe**: Avoids known danger zones and isolated footpaths, prioritizing well-lit, populated roads.
-  - **Accessibility**: Heavily penalizes stairs, steep inclines, and rough surfaces for a smooth wheelchair or stroller experience.
-  - **Dog**: Sub-modes (`relax`, `park_priority`, `quick`) to optimize for green spaces, grass, and quiet roads.
-  - **Weather-Aware**: Dynamically adjusts path weights based on real-time weather conditions (e.g., favoring sheltered paths in rain or wind).
-- 🗺️ **Continuous Geometry Rendering**: Reconstructs exact street curves and bends using edge geometry, rather than rendering jagged point-to-point lines.
-- 🕒 **Search History**: Integrated SQLite database to persist and manage recent searches directly from the sidebar.
-- 🎨 **Premium UI/UX**: A highly responsive, dynamic Leaflet-based frontend featuring micro-animations, glassmorphism, and a mobile-friendly bottom sheet.
-- 🛡️ **Mockable Environment**: Built-in cache and mock toggles for weather APIs and safety zones to ensure deterministic testing.
+## Tech Stack
 
----
+- Backend: Python, Flask, NetworkX, OSMnx, Shapely
+- Frontend: HTML, CSS, JavaScript, Leaflet
+- Data: OpenStreetMap GraphML
+- Storage: SQLite (`search_history.db`)
 
-## 📸 UI Overview
+## Project Structure
 
-![StillSpace UI overview](docs/screenshots/ui-overview.svg)
-*(A look at the clean, responsive mapping interface comparing the Fastest route with a Smart alternative.)*
+```text
+stillspace/
+  app.py
+  wsgi.py
+  city.graphml
+  database.py
+  routing_utils.py
+  route_modes.py
+  weather_service.py
+  safety_zones.py
+  accessibility.py
+  dog_mode.py
+  qa_smoke.py
+  templates/
+    index.html
+  static/
+    css/app.css
+    js/app.js
+  docs/screenshots/
+  .env.example
+  requirements.txt
+```
 
----
+## API Endpoints
 
-## 🏗️ Architecture
+### `POST /smart_route`
 
-StillSpace is built on a robust Python/Flask backend and a vanilla JavaScript/Leaflet frontend.
+Request body:
 
-### Backend Structure
-- **`app.py`**: The core Flask server, handling API endpoints, graph loading (`city.graphml`), coordinate snapping, and execution of the shortest-path algorithms.
-- **`route_modes.py`**: Defines the strategy pattern for different routing modes, calculating custom weights and turn penalties based on street topology and weather.
-- **`routing_utils.py`**: Helper functions for normalizing OpenStreetMap highway tags and calculating heuristic stress factors.
-- **`weather_service.py`**: Connects to the OpenWeather API with an integrated LRU cache and mock data generator.
-- **`database.py`**: SQLite controller managing user search history.
-- **`safety_zones.py`**: Defines and evaluates geographical polygons that represent dynamically loaded danger zones.
-
-### Frontend Structure
-- **`templates/index.html`**: The semantic application shell.
-- **`static/css/app.css`**: Premium styling system using modern CSS variables and flexible layouts.
-- **`static/js/app.js`**: Map state management, async API calls, route drawing, and UI state machine transitions.
-
----
-
-## 🚀 Getting Started (Local Development)
-
-### Prerequisites
-- Python 3.9+
-- A working `city.graphml` file (generated via `download_graph.py` or provided).
-
-### Installation Steps
-
-1. **Clone the repository & create a virtual environment:**
-   ```bash
-   git clone https://github.com/yourusername/stillspace.git
-   cd stillspace
-   python -m venv .venv
-   source .venv/bin/activate  # On Windows use: .venv\Scripts\activate
-   ```
-
-2. **Install dependencies:**
-   ```bash
-   pip install -r requirements.txt
-   ```
-
-3. **Configure Environment:**
-   Copy the example environment file and adjust if necessary.
-   ```bash
-   cp .env.example .env
-   ```
-
-4. **Run the Application:**
-   ```bash
-   python app.py
-   ```
-
-5. **Open in Browser:**
-   Navigate to `http://127.0.0.1:5000`
-
----
-
-## ⚙️ Environment Variables
-
-Customize the application behavior using the `.env` file:
-
-| Variable | Purpose | Default |
-|---|---|---|
-| `FLASK_DEBUG` | Enable Flask debug mode (auto-reload) | `false` |
-| `FLASK_HOST` | Host to bind the server to | `0.0.0.0` |
-| `FLASK_PORT` | Port to bind the server to | `5000` |
-| `LOG_LEVEL` | Python logging level (`INFO`, `DEBUG`, etc.) | `INFO` |
-| `GRAPH_PATH` | Path to the OSMnx GraphML file | `city.graphml` |
-| `USE_MOCK_WEATHER` | Toggle to bypass live OpenWeather API calls | `true` |
-| `OPENWEATHER_API_KEY`| API key for live weather data | *(empty)* |
-| `WEATHER_CACHE_TTL_SEC`| Cache expiration time for weather data | `900` |
-
----
-
-## 📖 API Documentation
-
-### 1. Calculate Smart Route
-`POST /smart_route`
-
-**Request Body:**
 ```json
 {
   "start_lat": 30.7333,
@@ -125,55 +73,100 @@ Customize the application behavior using the `.env` file:
 }
 ```
 
-**Response Highlights:**
-- `fastest_route`: Array of `[lat, lng]` points.
-- `smart_route`: Array of `[lat, lng]` points optimized for the selected mode.
-- `stats`: Distance and ETA breakdowns for both routes.
-- `comparison`: Percentage differences and added time/distance.
+Main response fields:
+- `fastest_route`
+- `smart_route`
+- `shortest_stats`
+- `smart_stats`
+- `comparison`
+- `connectors` (visual bridge segments)
+- `snapped_nodes`
+- `snap_distances_m`
 
-### 2. Fetch Safety Zones
-`GET /api/safety_zones`
-Returns GeoJSON polygons representing simulated or real danger zones on the map.
+### `GET /api/safety_zones`
 
-### 3. Search History
-- `GET /api/history`: Fetch recent route searches.
-- `DELETE /api/history/<id>`: Remove a specific search record.
+Returns GeoJSON polygons for safety overlays.
 
-### 4. Health Check
-`GET /health`
-Returns system status, graph metadata, and configuration variables (useful for load balancers).
+### `GET /api/history`
 
----
+Returns recent searches from SQLite.
 
-## 🧪 Testing & QA
+### `DELETE /api/history/<id>`
 
-Run the included smoke tests to quickly verify API health and routing integrity:
+Deletes one search history row.
+
+### `GET /health`
+
+Health metadata including graph bounds and max snap distance.
+
+## Local Setup
+
+1. Create and activate a virtual environment.
+
+Windows:
+
+```bash
+python -m venv .venv
+.venv\Scripts\activate
+```
+
+macOS/Linux:
+
+```bash
+python -m venv .venv
+source .venv/bin/activate
+```
+
+2. Install dependencies:
+
+```bash
+pip install -r requirements.txt
+```
+
+3. Create `.env` from template:
+
+```bash
+cp .env.example .env
+```
+
+4. Run:
+
+```bash
+python app.py
+```
+
+Open `http://127.0.0.1:5000`.
+
+## Environment Variables
+
+Defined in `.env.example`:
+
+- `FLASK_DEBUG`
+- `FLASK_HOST`
+- `FLASK_PORT`
+- `LOG_LEVEL`
+- `GRAPH_PATH`
+- `MAX_SNAP_DISTANCE_M`
+- `DB_PATH`
+- `USE_MOCK_WEATHER`
+- `OPENWEATHER_API_KEY`
+- `WEATHER_CACHE_TTL_SEC`
+- `WEATHER_REQUEST_TIMEOUT_SEC`
+
+## Smoke Test
 
 ```bash
 python qa_smoke.py
 ```
-This script tests the `/health` endpoint, the safety zones, and generates mock routes for all available modes to ensure no pathfinding regressions have occurred.
 
----
+## Production Run
 
-## 🌍 Deployment
-
-StillSpace is designed to be CPU-intensive due to graph pathfinding. Persistent containerized deployments are recommended over serverless functions.
-
-### Running with Gunicorn (Production)
 ```bash
 gunicorn wsgi:app --bind 0.0.0.0:5000 --workers 2 --threads 4
 ```
 
-### Render / Railway Setup
-1. Create a new Web Service linked to your repository.
-2. **Build Command**: `pip install -r requirements.txt`
-3. **Start Command**: `gunicorn wsgi:app --bind 0.0.0.0:$PORT --workers 2 --threads 4`
-4. Ensure `.env` variables (like `GRAPH_PATH`) are set in the provider's dashboard.
+## Notes
 
----
-
-## 📝 Notes & Limitations
-
-- Graph Loading: `city.graphml` is loaded into memory entirely at startup. Ensure sufficient RAM for very large city graphs.
-- Real geometry mapping guarantees that the visual route exactly tracks road curves, improving visual fidelity over standard node-to-node plotting.
+- `city.graphml` is loaded at startup.
+- Very large graphs require more RAM and slower cold starts.
+- For best UX, keep selected points within the graph coverage bounds.
