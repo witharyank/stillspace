@@ -53,6 +53,8 @@ def _read_cache(lat: float, lon: float) -> dict | None:
 
 def _write_cache(lat: float, lon: float, weather_state: dict) -> dict:
     key = _cache_key(lat, lon)
+    if len(_weather_cache) > 1000:
+        _weather_cache.clear()
     _weather_cache[key] = (time.time(), weather_state)
     return weather_state
 

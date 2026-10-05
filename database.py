@@ -1,7 +1,7 @@
 import sqlite3
 import os
 import logging
-from datetime import datetime
+from datetime import datetime, timezone
 
 # Create logger for database-related logs
 logger = logging.getLogger("stillspace.database")
@@ -14,7 +14,7 @@ DB_PATH = os.getenv("DB_PATH", "search_history.db")
 def init_db():
     try:
         # Connect to SQLite database
-        with sqlite3.connect(DB_PATH) as conn:
+        with sqlite3.connect(DB_PATH, timeout=10.0) as conn:
             cursor = conn.cursor()
 
             # Create search_history table
@@ -45,7 +45,7 @@ def init_db():
 def insert_search(start_lat: float, start_lon: float, end_lat: float, end_lon: float, mode: str):
     try:
         # Open database connection
-        with sqlite3.connect(DB_PATH) as conn:
+        with sqlite3.connect(DB_PATH, timeout=10.0) as conn:
             cursor = conn.cursor()
 
             # Insert search data into table
@@ -58,7 +58,7 @@ def insert_search(start_lat: float, start_lon: float, end_lat: float, end_lon: f
                 end_lat,
                 end_lon,
                 mode,
-                datetime.utcnow().isoformat()  # Current UTC time
+                datetime.now(timezone.utc).isoformat()  # Current UTC time
             ))
 
             # Save changes
@@ -73,7 +73,7 @@ def insert_search(start_lat: float, start_lon: float, end_lat: float, end_lon: f
 def get_recent_searches(limit: int = 10):
     try:
         # Open database connection
-        with sqlite3.connect(DB_PATH) as conn:
+        with sqlite3.connect(DB_PATH, timeout=10.0) as conn:
 
             # Return rows as dictionary-like objects
             conn.row_factory = sqlite3.Row
@@ -106,7 +106,7 @@ def get_recent_searches(limit: int = 10):
 def delete_search(search_id: int):
     try:
         # Open database connection
-        with sqlite3.connect(DB_PATH) as conn:
+        with sqlite3.connect(DB_PATH, timeout=10.0) as conn:
             cursor = conn.cursor()
 
             # Delete record matching given ID
