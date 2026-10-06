@@ -372,7 +372,8 @@ def _extract_preference_bias(data: Dict[str, object]) -> int:
 
 @app.route("/")
 def home():
-    return render_template("index.html")
+    carto_api_key = os.getenv("CARTO_API_KEY", "")
+    return render_template("index.html", carto_api_key=carto_api_key)
 
 
 @app.route("/health")

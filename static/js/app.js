@@ -9,8 +9,9 @@
     };
     const DEFAULT_CENTER = [30.7333, 76.7794];
     const DEFAULT_ZOOM = 14;
-    const TILE_DARK = "https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png";
-    const TILE_LIGHT = "https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png";
+    const cartoKeyParam = window.CARTO_API_KEY ? `?key=${window.CARTO_API_KEY}` : "";
+    const TILE_DARK = `https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png${cartoKeyParam}`;
+    const TILE_LIGHT = `https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png${cartoKeyParam}`;
     const SIMPLE_MODES = new Set(["fastest", "calm", "safe"]);
 
     const state = {
