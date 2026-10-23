@@ -1,6 +1,6 @@
 # StillSpace
 
-StillSpace is a Flask + OSMnx web app for intelligent urban walking routes.
+StillSpace is a navigator app for sound sensative person using Flask + OSMnx web app for intelligent urban walking routes.
 
 Instead of showing only the shortest path, it can compare:
 - Fastest
