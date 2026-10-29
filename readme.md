@@ -9,6 +9,7 @@ Instead of showing only the shortest path, it can compare:
 - Accessibility
 - Dog Walk
 - Weather Smart
+- Safety Matrix
 
 The app uses OpenStreetMap graph data (`city.graphml`), computes routes with NetworkX, and renders them in Leaflet.
 
